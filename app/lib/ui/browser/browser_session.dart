@@ -20,6 +20,7 @@ class BrowserSession {
   WebViewController? _controller;
   final ValueNotifier<String> url = ValueNotifier<String>('');
   final ValueNotifier<bool> visible = ValueNotifier<bool>(false);
+  final ValueNotifier<String> lastBlockedScheme = ValueNotifier<String>('');
 
   /// The page is on screen; while false the hidden host keeps the WebView up.
   bool get pageVisible => visible.value;
@@ -30,6 +31,14 @@ class BrowserSession {
       ..setBackgroundColor(const Color(0xFFFFFFFF))
       ..setNavigationDelegate(
         NavigationDelegate(
+          onNavigationRequest: (request) {
+            final uri = Uri.tryParse(request.url);
+            if (uri == null) return NavigationDecision.prevent;
+            const allowed = {'http', 'https', 'about', 'data', 'blob', 'file'};
+            if (allowed.contains(uri.scheme)) return NavigationDecision.navigate;
+            lastBlockedScheme.value = uri.scheme;
+            return NavigationDecision.prevent;
+          },
           onPageStarted: (value) => url.value = value,
           onPageFinished: (value) async {
             url.value = value;
@@ -129,7 +138,11 @@ class BrowserApi {
       case '/read':
         if (!session.opened) return {'error': 'browser_closed'};
         final raw = await session.run('document.body ? document.body.innerText.slice(0, 20000) : ""');
-        return {'text': _stringOf(raw)};
+        final text = _stringOf(raw);
+        if (text.contains('ERR_') || text.contains('网页无法打开') || text.contains('This site can')) {
+          return {'error': 'load_error', 'message': '页面加载失败：${text.split('\n').first}'};
+        }
+        return {'ok': true, 'text': text};
       case '/js':
         if (!session.opened) return {'error': 'browser_closed'};
         final code = (body['code'] as String?) ?? '';
@@ -147,7 +160,10 @@ class BrowserApi {
         final raw = await session.run(
           '(() => { const e = document.querySelector(\'[data-dsh-ref="$ref"]\'); if (!e) return "missing"; e.click(); return "ok"; })()',
         );
-        return {'result': _stringOf(raw)};
+        if (_stringOf(raw) == 'missing') {
+          return {'error': 'not_found', 'message': '这个编号不存在，请重新 snapshot'};
+        }
+        return {'ok': true};
       case '/type':
         if (!session.opened) return {'error': 'browser_closed'};
         final ref = body['ref'];
@@ -155,7 +171,10 @@ class BrowserApi {
         if (ref is! int) return {'error': 'ref must be an int'};
         final script = '(() => { const e = document.querySelector(\'[data-dsh-ref="$ref"]\'); if (!e) return "missing"; e.focus(); e.value = ${jsonEncode(text)}; e.dispatchEvent(new Event("input", {bubbles: true})); return "ok"; })()';
         final raw = await session.run(script);
-        return {'result': _stringOf(raw)};
+        if (_stringOf(raw) == 'missing') {
+          return {'error': 'not_found', 'message': '这个编号不存在，请重新 snapshot'};
+        }
+        return {'ok': true};
       default:
         return {'error': 'unknown path'};
     }
@@ -170,7 +189,10 @@ window.__dshJs = { id: $id, done: false };
   try {
     const __v = await (async () => { $code })();
     let __s;
-    try { __s = JSON.stringify(__v === undefined ? null : __v); } catch (e) { __s = String(__v); }
+    const __repl = (k, v) => (v && typeof v === 'object' && typeof v.nodeType === 'number')
+      ? { tag: String(v.tagName || '').toLowerCase(), text: String(v.innerText || '').slice(0, 200), html: String(v.outerHTML || '').slice(0, 200) }
+      : v;
+    try { __s = JSON.stringify(__v === undefined ? null : __v, __repl); } catch (e) { __s = String(__v); }
     if (__s !== undefined && __s.length > 32768) __s = __s.slice(0, 32768);
     window.__dshJs = { id: $id, done: true, value: __s };
   } catch (e) {
@@ -192,7 +214,12 @@ true
         if (state is! Map || state['id'] != id || state['done'] != true) continue;
         if (state['error'] != null) return {'error': 'js_error', 'message': '${state['error']}'};
         final value = state['value'];
-        return {'ok': true, 'result': value is String ? value : jsonEncode(value)};
+        if (value is! String) return {'ok': true, 'result': value};
+        try {
+          return {'ok': true, 'result': jsonDecode(value)};
+        } catch (_) {
+          return {'ok': true, 'result': value};
+        }
       } catch (_) {
         continue;
       }
@@ -247,13 +274,19 @@ true
   static const _snapshotScript = '''
 (() => {
   const sel = 'a,button,input,textarea,select,[role=button],[onclick]';
-  const els = Array.from(document.querySelectorAll(sel))
-    .filter(e => e.getClientRects().length > 0);
-  const out = els.slice(0, 120).map((e, i) => {
-    e.setAttribute('data-dsh-ref', String(i));
+  const seen = new Set();
+  const out = [];
+  for (const e of document.querySelectorAll(sel)) {
+    if (e.getClientRects().length === 0) continue;
     const t = (e.innerText || e.value || e.getAttribute('aria-label') || e.placeholder || '').trim().slice(0, 60);
-    return { ref: i, tag: e.tagName.toLowerCase(), text: t };
-  });
+    if (!t) continue;
+    const key = t + '|' + (e.tagName.toLowerCase() === 'button' ? 'a' : e.tagName.toLowerCase());
+    if (seen.has(key)) continue;
+    seen.add(key);
+    e.setAttribute('data-dsh-ref', String(out.length));
+    out.push({ ref: out.length, tag: e.tagName.toLowerCase(), text: t });
+    if (out.length >= 40) break;
+  }
   return JSON.stringify(out);
 })()
 ''';
