@@ -35,6 +35,7 @@ import { createCompanionSignals } from "./companion/signals.js";
 import { NativeCore } from "./native/core.js";
 import { effectiveLimits } from "./native/limits.js";
 import { STREAM_PATH, createNativeRoutes } from "./native/routes.js";
+import { registerBrowserTools } from "./browser-tools.js";
 
 export const name = "dsh-go-bridge";
 
@@ -323,6 +324,18 @@ export function apply(ctx, config) {
   ctx.on("internal/plugin", () => native.markDirty());
   let pluginConfig;
   ctx.on("internal/status", (fiber) => { native.markDirty(); pluginConfig?.statusChanged(fiber); });
+
+  // 内置浏览器工具: they ship with the runtime, so the app needs no plugin install.
+  ctx.inject(["tools"], (toolCtx) => {
+    toolCtx.effect(() => {
+      try {
+        return registerBrowserTools(toolCtx);
+      } catch (error) {
+        toolCtx.logger?.warn?.("dsh-go-bridge: browser tools not registered", error);
+        return undefined;
+      }
+    }, "dsh-go-bridge: browser tools");
+  });
 
   ctx.inject(["webServer"], (webCtx) => {
     webCtx.effect(() => webCtx.webServer.tapIndex(injectPromiseWithResolvers),
