@@ -99,6 +99,48 @@ class NotifyBridge {
     }
   }
 
+  /// 通知规则: keyword → 'record' | 'remind'.
+  static Future<List<({String keyword, String action})>> rules() async {
+    try {
+      final raw = await _channel.invokeListMethod<Object?>('rules') ?? const [];
+      return [
+        for (final entry in raw)
+          if (entry is Map) (keyword: '${entry['keyword']}', action: '${entry['action']}'),
+      ];
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  static Future<List<({String keyword, String action})>> addRule(String keyword, String action) async {
+    try {
+      await _channel.invokeListMethod<Object?>('addRule', {'keyword': keyword, 'action': action});
+    } catch (_) {}
+    return rules();
+  }
+
+  static Future<List<({String keyword, String action})>> removeRule(String keyword) async {
+    try {
+      await _channel.invokeListMethod<Object?>('removeRule', {'keyword': keyword});
+    } catch (_) {}
+    return rules();
+  }
+
+  static Future<List<NotifyItem>> hits({int limit = 50}) async {
+    try {
+      final raw = await _channel.invokeListMethod<Object?>('hits', {'limit': limit});
+      return _items(raw);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  static Future<void> clearHits() async {
+    try {
+      await _channel.invokeMethod<void>('clearHits');
+    } catch (_) {}
+  }
+
   static Future<void> clear() async {
     try {
       await _channel.invokeMethod<void>('clear');

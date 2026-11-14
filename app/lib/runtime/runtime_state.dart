@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../state/settings_state.dart';
 import '../state/read_list_epoch.dart';
+import '../ui/proxy/proxy_service.dart';
 import 'runtime_bridge.dart';
 
 final runtimeBridgeProvider = Provider<RuntimeBridge>((ref) => RuntimeBridge());
@@ -105,18 +106,42 @@ class LocalRuntimeController extends Notifier<LocalRuntimeState> {
     return _bridge.install(dropKept: true);
   }
 
+  /// 内置代理: the engine's own requests (model calls, downloads) follow the local
+  /// kernel while it is on. Read at start time, so a switch needs a restart to apply.
+  Map<String, String> _proxyEnv() {
+    final proxy = ProxyRoute.httpProxy;
+    if (proxy == null) return const {};
+    final url = 'http://127.0.0.1:${ProxyService.state.value.port}';
+    return {
+      'HTTP_PROXY': url,
+      'HTTPS_PROXY': url,
+      'http_proxy': url,
+      'https_proxy': url,
+      'NO_PROXY': '127.0.0.1,localhost,::1',
+    };
+  }
+
   /// The API key is not passed here: it is written to DSH's own credential store
   /// after connecting (see connection_state.dart), so it can change without a restart.
   /// Keeps the current mode: in safe mode this starts safe mode again.
   Future<void> start() {
     final settings = ref.read(settingsProvider);
-    return _bridge.start(phoneStorage: settings.phoneStorage, visualReplies: settings.visualReplies);
+    return _bridge.start(
+      env: _proxyEnv(),
+      phoneStorage: settings.phoneStorage,
+      visualReplies: settings.visualReplies,
+    );
   }
 
   /// Starts in [mode]; [EngineMode.normal] from safe mode begins the two-minute trial.
   Future<void> startIn(EngineMode mode) {
     final settings = ref.read(settingsProvider);
-    return _bridge.start(phoneStorage: settings.phoneStorage, visualReplies: settings.visualReplies, mode: mode);
+    return _bridge.start(
+      env: _proxyEnv(),
+      phoneStorage: settings.phoneStorage,
+      visualReplies: settings.visualReplies,
+      mode: mode,
+    );
   }
 
   Future<void> stop() => _bridge.stop();

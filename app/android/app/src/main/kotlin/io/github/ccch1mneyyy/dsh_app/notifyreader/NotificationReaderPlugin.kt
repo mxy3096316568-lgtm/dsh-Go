@@ -53,6 +53,21 @@ class NotificationReaderPlugin : FlutterPlugin, MethodChannel.MethodCallHandler 
                 NotificationStore.clear(context)
                 result.success(mapOf("ok" to true))
             }
+            "rules" -> result.success(NotificationRules.rules(context).map { mapOf("keyword" to it.keyword, "action" to it.action) })
+            "addRule" -> {
+                val keyword = call.argument<String>("keyword") ?: ""
+                NotificationRules.add(context, keyword, call.argument<String>("action") ?: NotificationRules.ACTION_RECORD)
+                result.success(NotificationRules.rules(context).map { mapOf("keyword" to it.keyword, "action" to it.action) })
+            }
+            "removeRule" -> {
+                NotificationRules.remove(context, call.argument<String>("keyword") ?: "")
+                result.success(NotificationRules.rules(context).map { mapOf("keyword" to it.keyword, "action" to it.action) })
+            }
+            "hits" -> result.success(NotificationRules.hits(context, (call.argument<Number>("limit")?.toInt() ?: 50).coerceIn(1, 200)))
+            "clearHits" -> {
+                NotificationRules.clearHits(context)
+                result.success(mapOf("ok" to true))
+            }
             else -> result.notImplemented()
         }
     }

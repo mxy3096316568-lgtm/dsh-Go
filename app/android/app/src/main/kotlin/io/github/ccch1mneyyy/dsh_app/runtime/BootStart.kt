@@ -26,9 +26,13 @@ object BootStart {
         prefs(context).edit().putBoolean(KEY_ENABLED, value).apply()
     }
 
-    /** Called on every start that came from Dart, so boot has something to replay. */
+    /**
+     * Called on every start that came from Dart, so boot has something to replay.
+     *
+     * The environment is usually empty (the runtime builds its own), so "never started"
+     * and "started with nothing extra" have to be told apart by the flag, not by the map.
+     */
     fun remember(context: Context, env: Map<String, String>, phoneStorage: Boolean) {
-        if (env.isEmpty()) return
         val json = JSONObject()
         for ((key, value) in env) json.put(key, value)
         prefs(context).edit()
@@ -43,7 +47,6 @@ object BootStart {
         val json = runCatching { JSONObject(raw) }.getOrNull() ?: return null
         val values = LinkedHashMap<String, String>()
         for (key in json.keys()) values[key] = json.optString(key)
-        if (values.isEmpty()) return null
         return values to prefs(context).getBoolean(KEY_PHONE, false)
     }
 

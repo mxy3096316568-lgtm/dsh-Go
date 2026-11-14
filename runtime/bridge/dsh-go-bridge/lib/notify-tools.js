@@ -91,6 +91,39 @@ function definitions() {
       },
     }),
     tool({
+      name: "notify_rule_add",
+      description: "加一条通知规则：手机收到含这个关键词的通知时，记一条（record）或者提醒用户（remind）。用户说「帮我盯着快递」「有面试消息提醒我」时用它。规则在本机执行，不走模型。",
+      properties: {
+        keyword: { type: "string", required: true, description: "要盯的词，比如「快递」「面试」" },
+        action: { type: "string", description: "record（只记一条，默认）或 remind（再弹一条提醒）" },
+      },
+      execute: async (args) => {
+        const result = await call("/notify/rule-add", { keyword: args.keyword, action: args.action ?? "record" });
+        return result;
+      },
+    }),
+    tool({
+      name: "notify_rule_list",
+      description: "列出已有的通知规则。",
+      execute: () => call("/notify/rules", {}),
+    }),
+    tool({
+      name: "notify_rule_remove",
+      description: "删掉一条通知规则（按关键词）。",
+      properties: { keyword: { type: "string", required: true, description: "规则里的关键词" } },
+      execute: (args) => call("/notify/rule-remove", { keyword: args.keyword }),
+    }),
+    tool({
+      name: "notify_hits",
+      description: "看通知规则命中过什么（时间、应用、标题、正文）。用户问「之前盯的那件事有消息吗」时用它。",
+      properties: { limit: { type: "integer", description: "最多几条，默认 50" } },
+      execute: async (args) => {
+        const result = await call("/notify/hits", { limit: args.limit ?? 50 });
+        if (Array.isArray(result.items)) return { ...result, lines: result.items.map(line) };
+        return result;
+      },
+    }),
+    tool({
       name: "notify_digest",
       description: "按应用汇总最近的通知：每个应用多少条、最新一条是什么，附最近的通知列表。用户说「帮我看看今天有什么消息」「总结一下通知」时先用它。",
       properties: {

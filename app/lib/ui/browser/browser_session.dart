@@ -514,6 +514,10 @@ class BrowserApi {
     '/notify/list': ['notify'],
     '/notify/search': ['notify'],
     '/notify/digest': ['notify'],
+    '/notify/rules': ['notify'],
+    '/notify/rule-add': ['notify'],
+    '/notify/rule-remove': ['notify'],
+    '/notify/hits': ['notify'],
   };
 
   static Future<Object?> _route(String path, Map<String, dynamic> body) async {
@@ -662,6 +666,22 @@ class BrowserApi {
           limit: (body['limit'] as int?) ?? 30,
         );
         return {'ok': true, 'items': [for (final item in items) item.toJson()]};
+      case '/notify/rules':
+        return {'ok': true, 'rules': await _ruleList()};
+      case '/notify/rule-add':
+        final keyword = (body['keyword'] as String?)?.trim() ?? '';
+        if (keyword.isEmpty) return {'error': 'keyword required'};
+        final action = (body['action'] as String?) == 'remind' ? 'remind' : 'record';
+        await NotifyBridge.addRule(keyword, action);
+        return {'ok': true, 'rules': await _ruleList()};
+      case '/notify/rule-remove':
+        await NotifyBridge.removeRule((body['keyword'] as String?)?.trim() ?? '');
+        return {'ok': true, 'rules': await _ruleList()};
+      case '/notify/hits':
+        final granted = (await NotifyBridge.status()).granted;
+        if (!granted) return _notifyDenied();
+        final hits = await NotifyBridge.hits(limit: (body['limit'] as int?) ?? 50);
+        return {'ok': true, 'items': [for (final hit in hits) hit.toJson()]};
       case '/notify/digest':
         final granted = (await NotifyBridge.status()).granted;
         if (!granted) return _notifyDenied();
@@ -700,6 +720,10 @@ class BrowserApi {
         return {'error': 'unknown path'};
     }
   }
+
+  static Future<List<Map<String, Object?>>> _ruleList() async => [
+    for (final rule in await NotifyBridge.rules()) {'keyword': rule.keyword, 'action': rule.action},
+  ];
 
   static Object _notifyDenied() => {
     'error': 'denied',

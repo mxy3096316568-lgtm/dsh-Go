@@ -57,6 +57,14 @@ object NotificationStore {
         items.addFirst(fresh)
         while (items.size > MAX) items.removeLast()
         save(context, force = false)
+        runCatching {
+            NotificationRules.apply(
+                context,
+                fresh.optString("app"),
+                fresh.optString("title"),
+                fresh.optString("text"),
+            )
+        }
     }
 
     @Synchronized

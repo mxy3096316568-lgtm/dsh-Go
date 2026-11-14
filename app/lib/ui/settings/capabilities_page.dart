@@ -365,11 +365,130 @@ class _NotifySectionState extends State<NotifySection> {
           onTap: _open,
         ),
         SettingsTile(
+          key: const ValueKey('notify-rules'),
+          title: '通知规则',
+          subtitle: '盯着某些词：出现了就记一条，或再提醒你一次',
+          onTap: () => showDialog<void>(context: context, builder: (_) => const _NotifyRulesDialog()),
+        ),
+        SettingsTile(
           key: const ValueKey('notify-preview'),
           title: '看看最近收到了什么',
           subtitle: '只在本机看，不会自动发给模型',
           onTap: _preview,
         ),
+      ],
+    );
+  }
+}
+
+class _NotifyRulesDialog extends StatefulWidget {
+  const _NotifyRulesDialog();
+
+  @override
+  State<_NotifyRulesDialog> createState() => _NotifyRulesDialogState();
+}
+
+class _NotifyRulesDialogState extends State<_NotifyRulesDialog> {
+  final _keyword = TextEditingController();
+  List<({String keyword, String action})> _rules = const [];
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _keyword.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    final rules = await NotifyBridge.rules();
+    if (mounted) setState(() => _rules = rules);
+  }
+
+  Future<void> _add(String action) async {
+    final word = _keyword.text.trim();
+    if (word.isEmpty) return;
+    setState(() => _busy = true);
+    final rules = await NotifyBridge.addRule(word, action);
+    if (!mounted) return;
+    setState(() {
+      _rules = rules;
+      _busy = false;
+      _keyword.clear();
+    });
+  }
+
+  Future<void> _remove(String keyword) async {
+    final rules = await NotifyBridge.removeRule(keyword);
+    if (mounted) setState(() => _rules = rules);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('通知规则'),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              key: const ValueKey('notify-rule-input'),
+              controller: _keyword,
+              decoration: const InputDecoration(
+                labelText: '关键词',
+                hintText: '快递、面试、航班…',
+                isDense: true,
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                FilledButton.tonal(
+                  onPressed: _busy ? null : () => _add('record'),
+                  child: const Text('记一条'),
+                ),
+                const SizedBox(width: 8),
+                FilledButton(
+                  onPressed: _busy ? null : () => _add('remind'),
+                  child: const Text('提醒我'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            if (_rules.isEmpty)
+              const Text('还没有规则', style: TextStyle(fontSize: 12))
+            else
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: [
+                    for (final rule in _rules)
+                      ListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(rule.keyword),
+                        subtitle: Text(rule.action == 'remind' ? '命中后提醒' : '命中后记录'),
+                        trailing: IconButton(
+                          icon: const Icon(Icons.close, size: 18),
+                          onPressed: () => _remove(rule.keyword),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('关闭')),
       ],
     );
   }

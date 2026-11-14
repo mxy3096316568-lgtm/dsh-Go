@@ -25,6 +25,7 @@ import '../../../plugins/native/native_files.dart';
 import '../../../plugins/native/native_model.dart';
 import '../../../plugins/native/native_state.dart';
 import '../../../plugins/native/native_surface.dart';
+import '../../../state/capability_guard.dart';
 import '../../../state/chat_state.dart';
 import '../../../state/composer_insert.dart';
 import '../../../state/hosts_state.dart';
@@ -286,6 +287,15 @@ Future<bool> runNativeTap(
     _ => const <String>{},
   };
   if (wants.isNotEmpty) {
+    // 能力控制 → 插件权限: off means the tap fails here, before any consent sheet,
+    // instead of promising a permission the app would not honour.
+    if (!CapabilityGuard.allows('plugins')) {
+      CapabilityGuard.noteDenial('plugins', '插件点按（${wants.join('+')}）');
+      if (userGesture && nativeTapIsFresh(tappedAt, clock())) {
+        _toast(context, '插件权限已关闭：请在 设置 → 能力控制 打开');
+      }
+      return false;
+    }
     final host = ref.read(activeHostProvider);
     final acks = ref.read(nativeWantsAcksProvider.notifier);
     if (!acks.acknowledged(host, package, wants)) {
