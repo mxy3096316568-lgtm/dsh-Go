@@ -39,14 +39,14 @@ class PrivacyPage extends ConsumerWidget {
             SettingsTile(spot: Spots.shareConfig, onTap: () => unawaited(showShareProfileSheet(context))),
             SettingsTile(
               icon: AppIcons.archive,
-              title: '导出整机存档',
-              subtitle: '规则、技能、插件、对话历史打成一个文件',
+              title: '导出存档',
+              subtitle: '按分类挑：会话、技能、插件、设置、知识库…',
               onTap: () => unawaited(exportArchive(context)),
             ),
             SettingsTile(
               icon: AppIcons.folder,
-              title: '导入整机存档',
-              subtitle: '换手机时把存档导回来',
+              title: '导入存档',
+              subtitle: '先看包里有什么，再选覆盖或跳过；导入前自动备份',
               onTap: () => unawaited(importArchive(context)),
             ),
           ],
