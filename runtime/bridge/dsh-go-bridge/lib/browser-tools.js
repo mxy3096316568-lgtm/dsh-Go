@@ -86,7 +86,7 @@ function definitions() {
     }),
     tool({
       name: "browser_snapshot",
-      description: "列出当前标签页面上可点的元素，每项带编号 ref 和文字。点按、填表、上传都用这个编号。",
+      description: "列出当前标签页面上可点的元素，每项带编号 ref 和文字。点按、填表、上传都用这个编号。文件选择框即使被藏在样式后面也会列出来，并带 file:true。",
       execute: () => call("/snapshot"),
     }),
     tool({

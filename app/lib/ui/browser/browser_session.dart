@@ -688,14 +688,20 @@ true
   const seen = new Set();
   const out = [];
   for (const e of document.querySelectorAll(sel)) {
-    if (e.getClientRects().length === 0) continue;
-    const t = (e.innerText || e.value || e.getAttribute('aria-label') || e.placeholder || '').trim().slice(0, 60);
+    const isFile = e.tagName === 'INPUT' && String(e.type || '').toLowerCase() === 'file';
+    // A file input is usually display:none behind a styled label, and takes no
+    // text: keep it anyway, or uploading has no ref to aim at.
+    if (!isFile && e.getClientRects().length === 0) continue;
+    let t = (e.innerText || e.value || e.getAttribute('aria-label') || e.placeholder || '').trim().slice(0, 60);
+    if (!t && isFile) t = '文件选择框';
     if (!t) continue;
-    const key = t + '|' + (e.tagName.toLowerCase() === 'button' ? 'a' : e.tagName.toLowerCase());
+    const key = isFile ? 'file|' + out.length : t + '|' + (e.tagName.toLowerCase() === 'button' ? 'a' : e.tagName.toLowerCase());
     if (seen.has(key)) continue;
     seen.add(key);
     e.setAttribute('data-dsh-ref', String(out.length));
-    out.push({ ref: out.length, tag: e.tagName.toLowerCase(), text: t });
+    const item = { ref: out.length, tag: e.tagName.toLowerCase(), text: t };
+    if (isFile) item.file = true;
+    out.push(item);
     if (out.length >= 40) break;
   }
   return JSON.stringify(out);
