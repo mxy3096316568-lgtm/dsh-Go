@@ -114,6 +114,8 @@ class ProcessLaunchGuardTest {
     private val updateJavaOwner = "app/android/app/src/main/kotlin/io/github/ccch1mneyyy/dsh_app/update/privileged/SelfUpdateInstallerService.kt"
     private val allowedNative = setOf(
         "app/android/app/src/main/kotlin/io/github/ccch1mneyyy/dsh_app/runtime/DshProcess.kt",
+        // 内置代理's kernel: one fixed binary with fixed argv (proxy/MihomoProcess.kt).
+        "app/android/app/src/main/kotlin/io/github/ccch1mneyyy/dsh_app/proxy/MihomoProcess.kt",
         // The explicit root channel's `su -c <fixed command>` (argv from RootCommands): also a
         // Java ProcessBuilder child, which closes inherited fds like DshProcess's launches.
         "app/android/app/src/main/kotlin/io/github/ccch1mneyyy/dsh_app/phone/background/RootProcess.kt",

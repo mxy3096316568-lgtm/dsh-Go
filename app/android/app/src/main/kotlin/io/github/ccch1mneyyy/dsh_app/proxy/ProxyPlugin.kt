@@ -91,14 +91,7 @@ class ProxyPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         port = requestedPort.coerceIn(1024, 65535)
         return try {
             val log = logFile(context)
-            val builder = ProcessBuilder(
-                binary.absolutePath,
-                "-d", dataDir(context).absolutePath,
-                "-f", config.absolutePath,
-            )
-                .redirectErrorStream(true)
-                .redirectOutput(ProcessBuilder.Redirect.appendTo(log))
-            val started = builder.start()
+            val started = MihomoProcess.start(binary, dataDir(context), config, log)
             process = started
             if (!waitForPort(port, 20000)) {
                 started.destroy()
