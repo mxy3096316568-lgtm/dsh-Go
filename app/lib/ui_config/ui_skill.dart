@@ -49,6 +49,9 @@ const supportSkillName = 'dsh-go-support';
 /// Uses the same report, prompt and checked adapter as companion light mode.
 const companionAdaptSkillName = 'companion-adapt';
 
+/// 内置浏览器的说明书：需要网页 / 登录的任务默认用它。
+const browserSkillName = 'dsh-go-browser';
+
 /// The managed line inside SKILL.md's front matter.
 const uiSkillManagedMarker = '# dsh-go:managed';
 
@@ -163,6 +166,7 @@ final extraSkillLoadersProvider = Provider<List<UiSkillBundleLoader>>(
     () => loadUiSkillBundle(null, guideSkillName),
     () => loadUiSkillBundle(null, supportSkillName),
     () => loadUiSkillBundle(null, companionAdaptSkillName),
+    () => loadUiSkillBundle(null, browserSkillName),
   ],
 );
 
