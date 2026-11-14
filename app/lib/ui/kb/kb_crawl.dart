@@ -5,6 +5,7 @@
 // 页间有间隔，robots.txt 逐站读一次并遵守。
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:html/parser.dart' as html_parser;
 

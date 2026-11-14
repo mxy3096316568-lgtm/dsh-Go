@@ -206,7 +206,7 @@ class _KbPageState extends State<KbPage> {
     return [
       '${doc.chunkCount} 块',
       _fmtBytes(doc.bytes),
-      if (dir != null) dir,
+      ?dir,
     ].join(' · ');
   }
 
