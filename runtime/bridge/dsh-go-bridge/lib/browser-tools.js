@@ -66,12 +66,12 @@ function definitions() {
   return [
     tool({
       name: "browser_state",
-      description: "看 App 内置浏览器当前状态：是否打开、在哪个网址。",
+      description: "看 App 内置浏览器当前状态：是否打开、在哪个网址。要处理任何网页任务前先调它。",
       execute: () => call("/state"),
     }),
     tool({
       name: "browser_open",
-      description: "在 App 内置浏览器里打开一个网址。浏览器页面没打开时返回 browser_closed。",
+      description: "在 App 内置浏览器里打开一个网址。凡是需要网页、登录、点按的任务都默认用它，不必等用户指定；页面会在用户面前自动出现。",
       properties: { url: { type: "string", required: true, description: "完整网址，https:// 开头" } },
       execute: async (args) => {
         const result = await call("/open", { url: args.url });
