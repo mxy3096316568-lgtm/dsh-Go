@@ -82,10 +82,9 @@ class BrowserSession {
   /// The document load in flight (completed on the next page finish).
   Completer<void>? _loading;
 
-  /// Set by `/upload` right before the page's file input is clicked; the
-  /// chooser answers with exactly this file.
-  String? _pendingUpload;
-  Completer<String?>? _uploadWait;
+  /// The largest file the upload tool can hand to a page: the bytes travel
+  /// into the page as base64, so this is memory, not disk.
+  static const maxUploadBytes = 10 * 1024 * 1024;
 
   /// Set when the person asks for a file the next time a page opens a picker.
   bool confirmUploads = true;
@@ -143,12 +142,13 @@ class BrowserSession {
             if (tab != null) tab.url = value;
             if (_loading != null && !_loading!.isCompleted) _loading!.complete();
             try {
-              final title = await created.getTitle() ?? '';
+              final mark = await loadErrorMark();
+              final title = mark.isEmpty ? (await created.getTitle() ?? '') : '加载失败';
               if (tab != null) {
                 tab.title = title;
                 _bumpTabs();
               }
-              await SiteStore.record(url: value, title: title);
+              if (mark.isEmpty) await SiteStore.record(url: value, title: title);
             } catch (_) {}
           },
         ),
@@ -159,6 +159,27 @@ class BrowserSession {
     }
     _controller = created;
     return created;
+  }
+
+  /// A marker when the page Chrome is showing is an error page (host unreachable,
+  /// certificate, DNS…), empty otherwise. Android's error page is not a document
+  /// the page itself served, so nothing else can tell them apart.
+  static const _errorProbe = '''
+(() => {
+  const url = String(location.href || "");
+  if (url.startsWith("chrome-error")) return "chrome-error";
+  const text = document.body ? String(document.body.innerText || "").slice(0, 600) : "";
+  const found = text.match(/ERR_[A-Z_]+|网页无法打开|无法访问此网站|This site can.t be reached/);
+  return found ? found[0] : "";
+})()
+''';
+
+  Future<String> loadErrorMark() async {
+    try {
+      return _stringOf(await run(_errorProbe));
+    } catch (_) {
+      return '';
+    }
   }
 
   Future<Object?> run(String script) async {
@@ -272,6 +293,14 @@ class BrowserSession {
 
   /// Feeds [path] to the file input [ref] (browser_upload). The chooser the
   /// page opens is answered with that one file, so no system picker appears.
+  /// Feeds [path] to the file input [ref] by filling `input.files` with a real
+  /// `File` and firing `input`/`change`.
+  ///
+  /// The click-into-the-chooser route does not work here: Chrome only opens a file
+  /// chooser for a trusted (user) gesture, and a tool's programmatic `click()` is
+  /// not one, so `onShowFileSelector` never runs. Building the `File` in the page
+  /// needs no gesture and no chooser, and the page sees exactly what a person's
+  /// pick would have given it.
   Future<Map<String, Object?>> upload(int ref, String path) async {
     if (!opened) return {'error': 'browser_closed'};
     final file = File(path);
@@ -290,40 +319,50 @@ class BrowserSession {
         '要把「${file.uri.pathSegments.last}」传到 $host 吗？上传后这个页面就能读到它的内容。',
         yes: '允许上传',
       );
-      if (!allowed) return {'error': 'denied', 'message': '用户拒绝了这个文件的上传'};
+      if (!allowed) return {'error': 'denied', 'message': '用户取消了这个文件的上传'};
     }
-    final script =
-        '(() => { const e = document.querySelector(\'[data-dsh-ref="$ref"]\'); '
-        'if (!e) return "missing"; const t = String(e.tagName || "").toLowerCase(); '
-        'if (t !== "input" || String(e.type || "").toLowerCase() !== "file") return "not_file"; '
-        'e.click(); return "ok"; })()';
-    // The chooser can be asked before click() returns: arm it first.
-    final wait = Completer<String?>();
-    _uploadWait = wait;
-    _pendingUpload = file.path;
-    String? answer;
-    try {
-      answer = _stringOf(await run(script));
-    } finally {
-      if (answer != 'ok') {
-        _uploadWait = null;
-        _pendingUpload = null;
-      }
+    final bytes = await file.readAsBytes();
+    final name = file.uri.pathSegments.last;
+    final mime = BrowserUi.mimeFor(name);
+    final base64Data = base64Encode(bytes);
+    // A multi-megabyte argument would ride in one evaluateJavaScript call; hand it
+    // over in chunks instead, then build the File from what the page kept.
+    await run('window.__dshUp = ""; true');
+    const chunkSize = 2 * 1024 * 1024;
+    for (var offset = 0; offset < base64Data.length; offset += chunkSize) {
+      final end = offset + chunkSize < base64Data.length ? offset + chunkSize : base64Data.length;
+      final chunk = base64Data.substring(offset, end);
+      await run('window.__dshUp += ${jsonEncode(chunk)}; true');
     }
-    if (answer == 'missing') return {'error': 'not_found', 'message': '这个编号不存在，请重新 snapshot'};
-    if (answer == 'not_file') {
+    final script = '''
+(async () => {
+  const el = document.querySelector('[data-dsh-ref="$ref"]');
+  if (!el) return "missing";
+  if (String(el.tagName || "").toLowerCase() !== "input" || String(el.type || "").toLowerCase() !== "file") return "not_file";
+  const bin = atob(window.__dshUp || "");
+  window.__dshUp = "";
+  const data = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) data[i] = bin.charCodeAt(i);
+  const file = new File([data], ${jsonEncode(name)}, { type: ${jsonEncode(mime)} });
+  const transfer = new DataTransfer();
+  transfer.items.add(file);
+  el.files = transfer.files;
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+  return el.files.length;
+})()
+''';
+    final result = await BrowserApi.runJs(this, script, 60000);
+    if (result is Map && result['error'] != null) return Map<String, Object?>.from(result);
+    final value = result is Map ? result['result'] : null;
+    if (value == 'missing') return {'error': 'not_found', 'message': '这个编号不存在，请重新 snapshot'};
+    if (value == 'not_file') {
       return {'error': 'unsupported', 'message': '这个编号不是文件选择框（<input type=file>）'};
     }
-    final used = await wait.future.timeout(
-      const Duration(seconds: 8),
-      onTimeout: () => null,
-    );
-    _uploadWait = null;
-    _pendingUpload = null;
-    if (used == null) {
-      return {'error': 'timeout', 'message': '页面没有弹出文件选择框（可能被网站拦住了）'};
+    if (value is num && value >= 1) {
+      return {'ok': true, 'path': path, 'name': name, 'bytes': bytes.length, 'files': value};
     }
-    return {'ok': true, 'path': used, 'bytes': await file.length()};
+    return {'error': 'unsupported', 'message': '页面没有接受这个文件（input.files 还是空的）'};
   }
 
   Map<String, Object?>? _uploadProblem(File file) {
@@ -342,8 +381,8 @@ class BrowserSession {
     if (!file.existsSync()) {
       return {'error': 'not_found', 'message': '这个文件不在手机上'};
     }
-    if (file.lengthSync() > 100 * 1024 * 1024) {
-      return {'error': 'too_large', 'message': '文件超过 100MB'};
+    if (file.lengthSync() > maxUploadBytes) {
+      return {'error': 'too_large', 'message': '这个文件超过 10MB，上传工具一次带不动；请改用更小的文件'};
     }
     return null;
   }
@@ -351,14 +390,9 @@ class BrowserSession {
   /// The page opened a file input: hand it the file [upload] chose, or ask the
   /// person which one when they tapped the input themselves.
   Future<List<String>> _chooseFiles(FileSelectorParams params) async {
-    // webview_flutter hands the answer to Chrome as `Uri.parse(path)`, and a bare
-    // path has no scheme there: send a file:// URI, which Chrome can open.
-    final pending = _pendingUpload;
-    if (pending != null) {
-      final wait = _uploadWait;
-      if (wait != null && !wait.isCompleted) wait.complete(pending);
-      return [Uri.file(pending).toString()];
-    }
+    // Only the person's own tap gets here (a trusted gesture). webview_flutter hands
+    // the answer to Chrome as `Uri.parse(path)`, and a bare path has no scheme
+    // there: send a file:// URI, which Chrome can open.
     final picked = await BrowserUi.pickFile(params.acceptTypes);
     return picked == null ? const [] : [Uri.file(picked).toString()];
   }
@@ -457,6 +491,17 @@ class BrowserApi {
         if (target == null || target.isEmpty) return {'error': 'url required'};
         try {
           final finalUrl = await session.open(target);
+          final mark = await session.loadErrorMark();
+          if (mark.isNotEmpty) {
+            return {
+              'error': 'load_error',
+              'message': '页面没打开：$target（$mark）。网址或网络有问题，读不到这个页面。',
+              'url': target,
+              'finalUrl': finalUrl,
+              'loading': session.loading,
+              'tabs': _tabsOf(session),
+            };
+          }
           return {
             'ok': true,
             'url': target,
@@ -513,8 +558,10 @@ class BrowserApi {
         await session.waitLoaded(const Duration(seconds: 3));
         final raw = await session.run('document.body ? document.body.innerText.slice(0, 20000) : ""');
         final text = BrowserSession._stringOf(raw);
-        if (text.contains('ERR_') || text.contains('网页无法打开') || text.contains('This site can')) {
-          return {'error': 'load_error', 'message': '页面加载失败：${text.split('\n').first}'};
+        final mark = await session.loadErrorMark();
+        if (mark.isNotEmpty || text.contains('ERR_') || text.contains('网页无法打开') || text.contains('This site can')) {
+          final reason = mark.isNotEmpty ? mark : text.split('\n').first;
+          return {'error': 'load_error', 'message': '页面加载失败：$reason'};
         }
         return {'ok': true, 'text': text};
       case '/js':
@@ -522,7 +569,7 @@ class BrowserApi {
         final code = (body['code'] as String?) ?? '';
         if (code.trim().isEmpty) return {'error': 'code required'};
         final timeoutMs = (body['timeoutMs'] as int?) ?? 10000;
-        return await _runJs(session, code, timeoutMs.clamp(1000, 30000).toInt());
+        return await runJs(session, code, timeoutMs.clamp(1000, 60000).toInt());
       case '/download':
         final target = (body['url'] as String?)?.trim();
         if (target == null || target.isEmpty) return {'error': 'url required'};
@@ -592,7 +639,7 @@ class BrowserApi {
     return null;
   }
 
-  static Future<Object?> _runJs(BrowserSession session, String code, int timeoutMs) async {
+  static Future<Object?> runJs(BrowserSession session, String code, int timeoutMs) async {
     final id = DateTime.now().microsecondsSinceEpoch;
     final wrapped = '''
 window.__dshJs = { id: $id, done: false };
@@ -831,6 +878,12 @@ class BrowserUi {
       }
     }
     return false;
+  }
+
+  /// The MIME type a page should see for [name].
+  static String mimeFor(String name) {
+    final dot = name.lastIndexOf('.');
+    return _mimeOf(dot > 0 ? name.substring(dot + 1).toLowerCase() : '');
   }
 
   static String _mimeOf(String ext) => switch (ext) {

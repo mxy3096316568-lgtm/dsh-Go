@@ -277,7 +277,10 @@ class WebdavClient {
       final path = decoded.startsWith(basePath)
           ? '/${decoded.substring(basePath.length)}'
           : (decoded.startsWith('/') ? decoded : '/$decoded');
-      final isDir = RegExp(r'<[A-Za-z0-9]*:?collection\s*/?>').hasMatch(block);
+      // A folder may come back as <d:collection/> or, on servers that answer only
+      // the asked-for props, just as a trailing-slash href.
+      final isDir = RegExp(r'<[^>]*collection[^>]*>', caseSensitive: false).hasMatch(block) ||
+          path.endsWith('/');
       final name = _tag(block, 'displayname')?.trim().isNotEmpty == true
           ? _tag(block, 'displayname')!.trim()
           : (path == '/' ? '/' : path.split('/').where((s) => s.isNotEmpty).last);
@@ -293,7 +296,7 @@ class WebdavClient {
   }
 
   static String? _tag(String block, String name) {
-    final match = RegExp('<[A-Za-z0-9]*:?$name[^>]*>(.*?)</[A-Za-z0-9]*:?$name>', dotAll: true).firstMatch(block);
+    final match = RegExp('<[A-Za-z0-9]*:?$name[^>]*>(.*?)</[A-Za-z0-9]*:?$name>', dotAll: true, caseSensitive: false).firstMatch(block);
     final value = match?.group(1);
     if (value == null) return null;
     return value

@@ -82,9 +82,10 @@ return rows.map(r => r.innerText)
 ## 上传文件
 
 1. `browser_snapshot` 找到文件选择框的编号：带 `file: true` 的那一项就是（网站常把它藏在「上传」按钮后面，snapshot 也会列出来）。
-2. `browser_upload(ref, path)`，`path` 必须真实存在，只允许 `下载(Download)` 和 `DCIM` 里的文件，且扩展名在允许列表里（pdf/docx/xlsx/图片/压缩包等）。
-3. 默认会弹一次确认请用户点「允许上传」——**上传是把文件内容发给网页**，属于「往外发」。
+2. `browser_upload(ref, path)`，`path` 必须真实存在，只允许 `下载(Download)` 和 `DCIM` 里的文件，扩展名在允许列表里（pdf/docx/xlsx/图片/压缩包等），单文件不超过 10MB。
+3. 默认会弹一次确认请用户点「允许上传」——**上传是把文件内容发给网页**，属于「往外发」。用户可能需要几十秒才点，工具会一直等。
 4. 用户不在 App 里、或点了取消，返回 `denied`：别重试，直接告诉用户需要他在 App 里确认。
+5. 成功时页面会真的收到这个文件（`input.files.length` 变成 1、触发 `change`），返回 `{ok, name, bytes, files}`。
 
 ## 确认的分寸
 

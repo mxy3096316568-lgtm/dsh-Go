@@ -129,12 +129,12 @@ function definitions() {
     }),
     tool({
       name: "browser_upload",
-      description: "把手机上的一个文件填进页面的文件选择框（先 snapshot 找到 <input type=file> 的 ref）。只允许 下载(Download) 和 DCIM 里的文件，扩展名也要在允许列表里；默认会请用户在 App 里确认，用户不在或不确认就返回 denied。",
+      description: "把手机上的一个文件填进页面的文件选择框（先 snapshot 找到带 file:true 的 ref）。只允许 下载(Download) 和 DCIM 里的文件、扩展名要在白名单里、单个不超过 10MB；默认会请用户在 App 里确认，用户不在或不确认返回 denied。填好后页面会收到 input/change 事件，和用户亲手选中一样。",
       properties: {
         ref: { type: "integer", required: true, description: "文件选择框的编号（browser_snapshot 给出）" },
         path: { type: "string", required: true, description: "手机上的完整路径，例如 /sdcard/Download/a.pdf" },
       },
-      execute: (args) => call("/upload", { ref: args.ref, path: args.path }, 30000),
+      execute: (args) => call("/upload", { ref: args.ref, path: args.path }, 180000),
     }),
     tool({
       name: "browser_tabs",
