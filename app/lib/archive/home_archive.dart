@@ -12,7 +12,6 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
-import 'package:archive/archive_io.dart';
 import 'package:path_provider/path_provider.dart';
 
 /// One entry a 整机存档 would carry, for the pre-flight size summary.
@@ -114,13 +113,7 @@ class HomeArchive {
   /// Restores [zip] over this root. Existing files are overwritten; the archive
   /// never deletes anything it does not carry.
   Future<int> import(File zip) async {
-    final input = InputFileStream(zip.path);
-    final Archive archive;
-    try {
-      archive = ZipDecoder().decodeStream(input);
-    } finally {
-      await input.close();
-    }
+    final archive = ZipDecoder().decodeBytes(zip.readAsBytesSync());
     var written = 0;
     for (final entry in archive.files) {
       if (!entry.isFile) continue;
@@ -128,7 +121,7 @@ class HomeArchive {
       if (_isUnsafe(rel)) continue;
       final target = File('${root.path}/$rel');
       await target.parent.create(recursive: true);
-      final output = openOutput(target.path);
+      final output = OutputFileStream(target.path);
       try {
         entry.writeContent(output);
       } finally {
