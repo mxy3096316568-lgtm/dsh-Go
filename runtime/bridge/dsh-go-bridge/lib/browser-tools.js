@@ -90,6 +90,24 @@ function definitions() {
       execute: () => call("/snapshot"),
     }),
     tool({
+      name: "browser_js",
+      description: "在当前标签里执行一段你现写的 JavaScript（可 await、可 fetch、可读写 localStorage）。用它一步取数据，别用几十次点击硬点；结果按 JSON 返回，超过 32KB 截断。副作用：脚本能改页面、能用登录态发请求。",
+      properties: {
+        code: { type: "string", required: true, description: "要执行的脚本，直接写语句，最后的表达式或 return 值会作为结果" },
+        timeoutMs: { type: "integer", description: "超时毫秒，默认 10000，最大 30000" },
+      },
+      execute: (args) => call("/js", { code: args.code, timeoutMs: args.timeoutMs ?? 10000 }),
+    }),
+    tool({
+      name: "browser_download",
+      description: "下载一个文件到手机的 下载/DSH-Go 目录，下载完成才返回。下载前先问用户是否要存到手机。",
+      properties: {
+        url: { type: "string", required: true, description: "文件的完整网址" },
+        filename: { type: "string", description: "保存的文件名，省略则用网址末段" },
+      },
+      execute: (args) => call("/download", { url: args.url, filename: args.filename }),
+    }),
+    tool({
       name: "browser_click",
       description: "点击页面上编号为 ref 的元素（编号来自 browser_snapshot）。",
       properties: { ref: { type: "integer", required: true, description: "browser_snapshot 给出的编号" } },
