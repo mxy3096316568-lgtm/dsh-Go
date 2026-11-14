@@ -383,7 +383,6 @@ class _HomeShellState extends ConsumerState<HomeShell> with TickerProviderStateM
                               onSearch: _search,
                               onHost: () =>
                                   showHostSheet(context, onManage: () => _openDestination(DrawerDestination.remote)),
-                              onWeb: () => _openDestination(DrawerDestination.web),
                               onSettings: () => _openDestination(DrawerDestination.settings),
                             ),
                             panel: layout.panelAvailable && sessionId != null
