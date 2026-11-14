@@ -190,7 +190,7 @@ class _KeepAliveSectionState extends ConsumerState<KeepAliveSection> {
           key: const ValueKey('keep-boot'),
           title: '开机后自动运行',
           subtitle: _status.replayable
-              ? '重启手机后在后台把引擎拉起来，不弹界面'
+              ? '重启手机、或被系统杀掉后，自动在后台把引擎拉回来'
               : '先正常启动一次引擎，之后才能开机自启',
           value: _status.boot,
           onChanged: _setBoot,

@@ -146,7 +146,7 @@ class _WebdavPageState extends State<WebdavPage> {
     final theme = Theme.of(context);
     return AppPage.list(
       title: '云盘',
-      subtitle: '连接自己的 WebDAV 网盘，让助手帮忙整理文件',
+      subtitle: const Text('连接自己的 WebDAV 网盘，让助手帮忙整理文件'),
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),

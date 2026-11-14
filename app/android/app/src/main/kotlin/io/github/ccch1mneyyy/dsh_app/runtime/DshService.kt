@@ -36,7 +36,10 @@ class DshService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val controller = RuntimeController.get(this)
-        when (intent?.action) {
+        val boot = BootStart.enabled(this)
+        // A sticky restart (the system killed us) arrives with no intent: replay the last
+        // environment so the engine comes back by itself instead of idling empty.
+        when (intent?.action ?: if (boot) ACTION_BOOT else null) {
             ACTION_INSTALL -> {
                 // First unpack or an upgrade: keep the process (and the CPU) up until it is done.
                 ensureChannel(this)
@@ -115,7 +118,8 @@ class DshService : Service() {
         }
         // A newer accepted command may still be waiting for onStartCommand, including a no-op stop.
         if (!running && installSink == null) stopSelf(startId)
-        return START_NOT_STICKY
+        // 常驻 turned on: let the system bring the service (and with it the engine) back.
+        return if (boot) START_STICKY else START_NOT_STICKY
     }
 
     override fun onDestroy() {

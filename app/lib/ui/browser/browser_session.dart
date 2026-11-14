@@ -116,7 +116,9 @@ class BrowserSession {
   WebViewController get controller {
     final existing = _controller;
     if (existing != null) return existing;
-    final created = WebViewController()
+    // Assigned after construction: the delegate below answers with this controller.
+    late final WebViewController created;
+    created = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(const Color(0xFFFFFFFF))
       ..setNavigationDelegate(
