@@ -9,15 +9,16 @@ import 'package:flutter/foundation.dart';
 class CapabilityGuard {
   CapabilityGuard._();
 
-  /// Tools exist and are refused when off.
-  static const enforced = {'browser', 'files', 'cloud', 'notify'};
+  /// Tools exist and are refused when off. `plugins` gates the v1.4 host capabilities:
+  /// every plugin request (`host.req`) is refused while it is off.
+  static const enforced = {'browser', 'files', 'cloud', 'notify', 'plugins'};
 
   /// Controlled elsewhere: 屏幕控制 is the app's 手机操控 master switch (settings →
   /// 手机操控), so 能力控制 shows its state and links there instead of owning a copy.
   static const linked = {'screen': '手机操控'};
 
   /// Nothing to enforce yet: the page shows them as 尚未接入 and does not pretend.
-  static const pending = {'automation', 'voice', 'memory', 'plugins'};
+  static const pending = {'automation', 'voice', 'memory'};
 
   /// Why a pending switch is pending — three of them are not "no feature", they are
   /// "feature exists elsewhere, no gate yet", which is a different promise.
@@ -25,7 +26,6 @@ class CapabilityGuard {
     'automation': '引擎的定时任务已经有了，这个开关还没接上拦截',
     'voice': 'App 有朗读和语音输入，这个开关还没接上拦截',
     'memory': '本地记忆功能还没做（计划 b9）',
-    'plugins': '插件协议的 wants 还没有统一拦截点',
   };
 
   static const labels = <String, String>{

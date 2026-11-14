@@ -1,6 +1,7 @@
 import { featuresOf } from "./capabilities.js";
 import { CapabilityRuntime } from "./capability-runtime.js";
 import { FilePickerRuntime } from "./file-picker-runtime.js";
+import { HostRuntime } from "./host-runtime.js";
 // Native plugin routes (docs/design/native-plugins-protocol.md §4): contributions, views, invoke,
 // assets and the stream. The caller (index.js) has already passed Connection's guard.
 import { randomBytes } from "node:crypto";
@@ -122,6 +123,7 @@ export function createNativeRoutes(core) {
   const connById = new Map();
   const pendings = new Map();   // pending id -> {id, pkg, conn, controller, settled, timer}
   const capabilities = new CapabilityRuntime(core, fail);
+  const host = new HostRuntime(core);
   const files = new FilePickerRuntime(core, { fail, sendJson, readJsonBody });
   let disposed = false;
   const staticViews = new Map();   // file -> {stamp, view: normalized JSON value and byte size}
@@ -336,7 +338,9 @@ export function createNativeRoutes(core) {
     if (body.value !== undefined) event.value = body.value;
     let result, deferred;
     try {
-      ({ result, deferred } = await withTimeout(call(fn, arg, event).then(result => {
+      const hostEntry = { pkg: body.pkg, uid: rec.uid, stamp: rec.stamp, conn: capabilityConn,
+        scope, surface: body.surface, id: body.id };
+      ({ result, deferred } = await withTimeout(host.run(hostEntry, () => call(fn, arg, event)).then(result => {
         const deferred = splitPending(result);
         // Own eager work even if the outer handler finishes after its deadline.
         // Assimilate a thenable once; later delivery consumes this same Promise.
@@ -376,7 +380,7 @@ export function createNativeRoutes(core) {
 
   // -------------------------------------------------------------- deferred results (§4.7)
 
-  function startPending(res, { pkg, id, streamId, scope, panels, source, controller, deferred, current, filterPatches }) {
+  function startPending(res, { pkg, id, streamId, scope, panels, source, controller, deferred, current, filterPatches, rec }) {
     // A refused deferred result must not leave an eager rejected Promise unhandled.
     const swallow = () => { if (typeof deferred.work?.then === "function") deferred.work.then(undefined, () => {}); };
     if (!deferred.ok) {
@@ -406,7 +410,10 @@ export function createNativeRoutes(core) {
     entry.timer.unref?.();
     let responded;
     const gate = new Promise((resolve) => { responded = resolve; });
-    const work = typeof deferred.work === "function" ? call(deferred.work, controller.signal) : Promise.resolve(deferred.work);
+    const hostEntry = { pkg, uid: rec?.uid, stamp: rec?.stamp, conn, scope, surface: source ?? "panel", id };
+    const work = typeof deferred.work === "function"
+      ? host.run(hostEntry, () => call(deferred.work, controller.signal))
+      : Promise.resolve(deferred.work);
     work.then(async (value) => {
       await gate;
       if (entry.settled) return;   // expired, cancelled or disconnected: the late result is dropped
@@ -530,6 +537,7 @@ export function createNativeRoutes(core) {
       dropPendings(conn);
       files.drop(conn);
       capabilities.drop(conn);
+      host.drop(conn);
       for (const sub of conn.subs.values()) sub.feed?.detach(sub);
       conn.subs.clear();
     });
@@ -564,6 +572,7 @@ export function createNativeRoutes(core) {
       return;
     }
     if (capabilities.message(conn, msg)) return;
+    if (host.answer(conn, msg)) return;
     switch (msg.t) {
       case "sub": return subscribe(conn, msg);
       case "unsub": {
@@ -656,6 +665,7 @@ export function createNativeRoutes(core) {
     offChanged();
     capabilities.dispose();
     files.dispose();
+    host.dispose();
     for (const c of conns) dropPendings(c);
     for (const c of [...conns]) c.ws.close(1001, "bridge stopping");
   }

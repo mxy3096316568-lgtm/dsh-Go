@@ -452,6 +452,14 @@ export class NativeCore {
         if (!loc || !core.pickedFileRead) throw new Error("no active file selection callback");
         return core.pickedFileRead(loc.pkg, handle);
       },
+      // v1.4: data from the app, or an action only it can take. Async; refuses with an
+      // Error whose `code` is unsupported / denied / timeout / limit / bad-request.
+      capability(name, args) {
+        const loc = core.locate(entryOf(this?.ctx?.fiber));
+        if (!loc) throw new Error("dshGo.capability: call it from a plugin context");
+        if (!core.host) throw new Error("dshGo.capability: no app is connected");
+        return core.host.capability(loc.pkg, name, args);
+      },
     };
     Object.defineProperty(service, TRACKER, { value: { associate: "dshGo", property: "ctx" }, enumerable: false });
     return service;

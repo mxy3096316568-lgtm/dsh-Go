@@ -153,6 +153,22 @@ class DshGoScope {
   final String? messageId;
   final String? callId;
 
+  /// Reads a wire scope; null when it is not a map at all.
+  static DshGoScope? fromJson(Object? json) {
+    if (json is! Map) return null;
+    String? read(String key) {
+      final value = json[key];
+      return value is String && value.isNotEmpty && value.length <= 200 ? value : null;
+    }
+
+    return DshGoScope(
+      sessionId: read('sessionId'),
+      turnId: read('turnId'),
+      messageId: read('messageId'),
+      callId: read('callId'),
+    );
+  }
+
   /// Normalised: empty values dropped, keys in name order.
   Map<String, String> toJson() => {
     if (callId case final v? when v.isNotEmpty) 'callId': v,
@@ -1009,7 +1025,42 @@ class _IoSocket implements DshGoSocket {
 /// Host), `voice` (speech activity, detected in the app), `micro` (a small
 /// caption channel), `overlay` (one floating caption line).
 /// v1.3 adds `files` (a user-selected read-only content snapshot).
-const dshGoFeatures = {'audio', 'voice', 'micro', 'overlay', 'files'};
+/// v1.4 adds the host capabilities (§13): data from the app the host cannot
+/// see, and actions only the app can take. `pluginFiles` is the plugin's own
+/// data directory — deliberately not called `files`, which is the picker.
+const dshGoFeatures = {
+  'audio', 'voice', 'micro', 'overlay', 'files',
+  'sessionText', 'selection', 'send', 'notify', 'phone', 'tools', 'schedule', 'pluginFiles',
+};
+
+/// One `host.req` from the bridge: a plugin is using a host capability (§13).
+/// The app answers with [DshGoStream.answerHost].
+class DshGoHostRequest {
+  const DshGoHostRequest({
+    required this.id,
+    required this.package,
+    required this.capability,
+    required this.payload,
+    required this.scope,
+    required this.bytes,
+  });
+
+  final String id;
+
+  /// The plugin asking (`pkg` in the manifest).
+  final String package;
+
+  /// One of the v1.4 host capabilities.
+  final String capability;
+
+  final Map<String, Object?> payload;
+
+  /// The tapped action's scope (`sessionId` …), so the app picks the right conversation.
+  final DshGoScope scope;
+
+  /// The frame's size in UTF-8 bytes.
+  final int bytes;
+}
 
 /// Media types a clip may have.
 const dshGoAudioTypes = {'audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/mp4', 'audio/aac'};
@@ -1226,6 +1277,7 @@ class DshGoStream {
   final _microSubs = <String, _MicroSubscription>{};
   final _changes = StreamController<DshGoChanged>.broadcast();
   final _links = StreamController<DshGoLink>.broadcast();
+  final _hostRequests = StreamController<DshGoHostRequest>.broadcast();
   DshGoSocket? _socket;
   StreamSubscription<Object?>? _socketSub;
   Timer? _graceTimer;
@@ -1262,6 +1314,44 @@ class DshGoStream {
 
   /// Contributions changed on the Host (`changed`).
   Stream<DshGoChanged> get changes => _changes.stream;
+
+  /// v1.4: a plugin is asking the app for a host capability (§13). Answer each
+  /// one with [answerHost]; the bridge refuses the plugin's call after its own
+  /// deadline if nothing answers.
+  Stream<DshGoHostRequest> get hostRequests => _hostRequests.stream;
+
+  /// Answers [request]. With [code] the plugin's call is refused (`denied`,
+  /// `unsupported`, …); otherwise [value] is the answer (a String or JSON).
+  /// Returns false when this connection did not negotiate the capability or the
+  /// answer is too large to send.
+  bool answerHost(String id, {Object? value, String? code, String? message}) {
+    if (_link != DshGoLink.open || id.isEmpty || id.length > 64) return false;
+    if (code != null) {
+      if (!RegExp(r'^[a-z-]{2,40}$').hasMatch(code)) return false;
+      _send({
+        't': 'host.res',
+        'id': id,
+        'ok': false,
+        'code': code,
+        if (message != null) 'message': _short(message, 200),
+      });
+      return true;
+    }
+    String? encoded;
+    if (value != null) {
+      try {
+        encoded = jsonEncode(value);
+      } catch (_) {
+        return false;
+      }
+      if (utf8.encode(encoded).length > 65536) return false;
+    }
+    _send({'t': 'host.res', 'id': id, 'ok': true, if (encoded != null) 'value': value});
+    return true;
+  }
+
+  static String _short(String text, int max) =>
+      text.length <= max ? text : '${text.substring(0, max)}…';
 
   int get subscriptionCount => _subs.length;
 
@@ -1355,6 +1445,26 @@ class DshGoStream {
     if (!sub.controller.isClosed) sub.controller.add(event);
     unawaited(sub.controller.close());
     release();
+  }
+
+  void _onHostRequest(JsonMap map, int bytes) {
+    if (bytes > 8192) return;
+    final id = asString(map['id']);
+    final pkg = asString(map['pkg']);
+    final cap = asString(map['cap']);
+    final payload = asMap(map['payload']);
+    if (id == null || id.isEmpty || id.length > 64 || pkg == null || cap == null || payload == null) return;
+    if (!negotiatedFeatures.contains(cap)) return;
+    final scope = DshGoScope.fromJson(map['scope']) ?? DshGoScope.none;
+    if (_hostRequests.isClosed) return;
+    _hostRequests.add(DshGoHostRequest(
+      id: id,
+      package: pkg,
+      capability: cap,
+      payload: Map<String, Object?>.unmodifiable(payload),
+      scope: scope,
+      bytes: bytes,
+    ));
   }
 
   void _onMicro(JsonMap map, int bytes) {
@@ -1542,6 +1652,7 @@ class DshGoStream {
     }
     await _changes.close();
     await _links.close();
+    await _hostRequests.close();
   }
 
   void _setLink(DshGoLink link) {
@@ -1711,6 +1822,9 @@ class DshGoStream {
         return;
       case 'micro.data' || 'micro.end':
         _onMicro(map, utf8.encode(raw).length);
+        return;
+      case 'host.req':
+        _onHostRequest(map, utf8.encode(raw).length);
         return;
       case 'data' || 'patch' || 'sync' || 'stale' || 'end':
         break;

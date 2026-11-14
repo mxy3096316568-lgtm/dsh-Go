@@ -25,6 +25,12 @@ class _ProxyPageState extends State<ProxyPage> {
   String? _message;
   bool _failed = false;
 
+  /// What the switch is doing right now (`starting` / `stopping`). Kept here, not in
+  /// [ProxyService], so the tap shows 「启动中…」 at once and a failure stays on screen
+  /// instead of falling back to 「已停止」.
+  String? _phase;
+  String? _failure;
+
   @override
   void initState() {
     super.initState();
@@ -50,37 +56,67 @@ class _ProxyPageState extends State<ProxyPage> {
   }
 
   Future<void> _import() async {
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _phase = 'starting';
+      _failure = null;
+    });
     try {
       final port = int.tryParse(_port.text.trim());
       final problem = await ProxyService.applySubscription(_subscription.text, port: port);
       if (problem != null) {
+        if (mounted) setState(() => _failure = problem);
         _say(problem, failed: true);
         return;
       }
       _say('已启动，本 App 的网页和下载走 127.0.0.1:${ProxyService.state.value.port}');
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _phase = null;
+        });
+      }
     }
   }
 
+  /// The kernel's last log line, for the line under a failed start.
+  Future<String> _lastKernelLine() async {
+    final log = await ProxyService.log();
+    return log.split('\n').lastWhere((l) => l.trim().isNotEmpty, orElse: () => '');
+  }
+
   Future<void> _toggle(bool on) async {
+    if (_busy) return;
     if (on && !ProxyService.state.value.configured) {
-      _say('还没有订阅：先把订阅地址填上，点「导入并启动」', failed: true);
+      const reason = '还没有订阅：先把订阅地址填上，点「导入并启动」';
+      setState(() {
+        _phase = null;
+        _failure = reason;
+      });
+      _say(reason, failed: true);
       return;
     }
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _phase = on ? 'starting' : 'stopping';
+      _failure = null;
+    });
     _say(on ? '启动中…' : '正在关闭…');
     try {
       if (on) {
         final next = await ProxyService.start();
         if (!next.running) {
-          final log = await ProxyService.log();
-          final first = log.split('\n').lastWhere((l) => l.trim().isNotEmpty, orElse: () => '');
-          _say([
-            next.hint.isEmpty ? '没起来' : next.hint,
-            if (first.isNotEmpty) '内核：${first.length > 160 ? first.substring(first.length - 160) : first}',
-          ].join('\n'), failed: true);
+          final reason = next.hint.isEmpty ? '内核没起来，看下面的内核日志' : next.hint;
+          final first = await _lastKernelLine();
+          if (mounted) setState(() => _failure = reason);
+          _say(
+            [
+              reason,
+              if (first.isNotEmpty) '内核：${first.length > 160 ? first.substring(first.length - 160) : first}',
+            ].join('\n'),
+            failed: true,
+          );
           return;
         }
         _say('已开启');
@@ -89,7 +125,12 @@ class _ProxyPageState extends State<ProxyPage> {
         _say('已关闭，网页恢复直连');
       }
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _phase = null;
+        });
+      }
     }
   }
 
@@ -135,19 +176,35 @@ class _ProxyPageState extends State<ProxyPage> {
                   key: const ValueKey('proxy-status'),
                   icon: Icons.hub,
                   title: '代理',
-                  subtitle: state.running
-                      ? '运行中 · 127.0.0.1:${state.port}${state.webViewProxy ? ' · 网页已接管' : ' · 网页未接管'}'
-                      : (state.configured ? '已停止' : '还没导入订阅'),
-                  value: Text(state.running ? '开' : '关'),
+                  subtitle: _phase == 'starting'
+                      ? '启动中…'
+                      : _phase == 'stopping'
+                          ? '正在关闭…'
+                          : state.running
+                              ? '运行中 · 127.0.0.1:${state.port}${state.webViewProxy ? ' · 网页已接管' : ' · 网页未接管'}'
+                              : _failure != null
+                                  ? '启动失败'
+                                  : (state.configured ? '已停止' : '还没导入订阅'),
+                  value: Text(state.running && _phase != 'stopping' ? '开' : _phase == 'starting' ? '启动中' : '关'),
                 ),
                 SettingsSwitchTile(
                   key: const ValueKey('proxy-switch'),
                   icon: Icons.toggle_on,
                   title: '启用',
-                  subtitle: state.kernel ? '内核已随安装包一起装上' : '这个安装包里没有内核',
-                  value: state.running,
-                  // Always tappable: a disabled switch looks like the tap was ignored.
-                  onChanged: !state.kernel ? null : _toggle,
+                  subtitle: _phase == 'starting'
+                      ? '启动中…（最多等 20 秒）'
+                      : _phase == 'stopping'
+                          ? '正在关闭…'
+                          : _failure != null
+                              ? '启动失败：$_failure'
+                              : state.kernel
+                                  ? '内核已随安装包一起装上'
+                                  : '这个安装包里没有内核（点了会说明原因）',
+                  // While an attempt is running the switch is disabled so a second tap
+                  // cannot start a parallel attempt; otherwise it always takes a tap, even
+                  // when the kernel is missing (the reason then shows on screen).
+                  value: state.running || _phase == 'starting',
+                  onChanged: _busy ? null : _toggle,
                 ),
               ],
             ),

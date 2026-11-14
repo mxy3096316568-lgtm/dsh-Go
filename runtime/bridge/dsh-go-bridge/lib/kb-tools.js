@@ -66,7 +66,15 @@ function definitions() {
         const result = await call("/kb/search", { query: args.query, limit: args.limit ?? 8 });
         if (result.ok && (!result.hits || result.hits.length === 0)) {
           const stats = await call("/kb/stats", {});
-          return { ...result, note: `${EMPTY}（现在有 ${stats.docs ?? 0} 个文档、${stats.chunks ?? 0} 块）` };
+          const docs = stats.docs ?? 0;
+          const chunks = stats.chunks ?? 0;
+          // 空命中分两种：知识库本来空着（该放文件），还是有文档但没有这个词。
+          // 以前两种情况都回 EMPTY，于是「有 3 个文档」和「知识库还是空的」一起出现。
+          const note = docs === 0
+            ? EMPTY
+            : `没有找到包含「${args.query}」的文档（当前 ${docs} 个文档、${chunks} 块）。` +
+              "换个关键词、少写几个字试试，或用 kb_stats 看看收了哪些文件。";
+          return { ...result, note };
         }
         return result;
       },

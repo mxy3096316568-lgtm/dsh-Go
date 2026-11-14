@@ -77,7 +77,12 @@ class _ConsentPageState extends State<ConsentPage> {
   /// `工具审批 · 11月14日 21:20 · 依赖：files`；能力开关关掉时补一句已失效。
   String _lineFor(ConsentGrant grant) {
     return [
-      grant.kind == 'tool' ? '工具审批' : (grant.kind == 'upload' ? '上传到站点' : grant.kind),
+      switch (grant.kind) {
+        'tool' => '工具审批',
+        'upload' => '上传到站点',
+        'plugin' => '插件能力',
+        _ => grant.kind,
+      },
       if (_when(grant.createdAtMs).isNotEmpty) _when(grant.createdAtMs),
       if (grant.requires.isNotEmpty) '依赖：${grant.requires.join('/')}',
       if (!ConsentStore.instance.live(grant)) '已失效（能力已关）',
@@ -94,8 +99,9 @@ class _ConsentPageState extends State<ConsentPage> {
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
           child: Text(
-            '「总是允许」都记在这里，只在这个手机上有效。关掉对应的能力开关（浏览器/文件/云盘/通知），'
-            '相关授权会一起失效；撤销一条，下一次同样的动作会重新问你。',
+            '「总是允许」都记在这里，只在这个手机上有效。关掉对应的能力开关（浏览器/文件/云盘/通知/插件权限），'
+            '相关授权会一起失效；撤销一条，下一次同样的动作会重新问你。手机操控和插件运行工具这类操作'
+            '每次都会问，不会出现在这里。',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ),

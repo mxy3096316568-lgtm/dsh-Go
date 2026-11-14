@@ -30,6 +30,7 @@ import '../../state/locale_state.dart';
 import '../../state/plugins_state.dart';
 import '../../ui_config/ui_config_ignores.dart' show uiHostKey;
 import '../../ui/chat/dsh_ui/dsh_ui_model.dart' show dshUiPluginComponents;
+import 'native_host_api.dart';
 import 'native_model.dart';
 import 'native_platform.dart';
 
@@ -254,9 +255,26 @@ final nativeStreamProvider = Provider<DshGoStream?>((ref) {
   final lifecycle = AppLifecycleListener(onStateChange: follow);
   follow(WidgetsBinding.instance.lifecycleState);
   final changes = stream.changes.listen((_) => ref.invalidate(nativeRawContributionsProvider));
+  // v1.4 host capabilities: every `host.req` on this stream is answered here, through
+  // the per-plugin authorization, and never for a capability the app did not negotiate.
+  final hostApi = NativeHostApi(
+    stream: stream,
+    handlers: AppHostHandlers(
+      ref: ref,
+      client: bridge is ClientNativeBridge ? bridge.client : null,
+      host: ref.read(activeHostProvider),
+    ),
+    consent: (request, {required rememberable}) => showNativeHostConsent(
+      request,
+      rememberable: rememberable,
+      pluginTitle: ref.read(nativePluginTitleProvider(request.package)),
+    ),
+    onError: (error) => debugPrint('native host capability failed: $error'),
+  )..attach();
   ref.onDispose(() {
     lifecycle.dispose();
     unawaited(changes.cancel());
+    unawaited(hostApi.dispose());
     unawaited(stream.close());
   });
   return stream;

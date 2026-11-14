@@ -15,21 +15,33 @@ import 'kb_index.dart';
 
 /// 抓一页的结果。
 class CrawlPage {
-  const CrawlPage({required this.url, required this.outcome, this.title = '', this.error});
+  const CrawlPage({required this.url, required this.status, this.title = '', this.error});
 
   final String url;
-  final KbPutResult outcome;
+
+  /// `added` / `updated` / `unchanged` / `skipped` / `failed`。跳过和失败的页也留一条，
+  /// 抓完看 `pages` 就知道每个链接的下场，不用回头翻 notes。
+  final String status;
+
   final String title;
 
-  /// 失败原因（只在这一页失败时有）。
+  /// 跳过或失败的原因。
   final String? error;
 
   Map<String, Object?> toJson() => <String, Object?>{
     'url': url,
     if (title.isNotEmpty) 'title': title,
-    'outcome': outcome.name,
+    'status': status,
     if (error != null) 'error': error,
   };
+}
+
+class _FetchedPage {
+  const _FetchedPage(this.uri, this.text, this.title);
+
+  final Uri uri;
+  final String text;
+  final String title;
 }
 
 /// 一次抓取的总结果。
@@ -128,6 +140,9 @@ class CrawlService {
     final seen = <String>{_key(startUri)};
     final robots = <String, _Robots>{};
     final pages = <CrawlPage>[];
+    // 抓到的页先留在内存里，整轮抓完才一起写盘：中途被中止时知识库里不会留下
+    // 半套结果（以前是抓一页写一页，超时后目录里多出几份不完整的 md）。
+    final fetchedPages = <_FetchedPage>[];
     final deadline = DateTime.now().add(budget);
     var added = 0, updated = 0, unchanged = 0, skipped = 0, failed = 0;
     var fetched = 0;
@@ -154,29 +169,24 @@ class CrawlService {
       final page = render ? await _fetchRendered(uri) : await _fetchDirect(uri);
       if (page == null) {
         failed += 1;
-        pages.add(CrawlPage(url: uri.toString(), outcome: KbPutResult.failed, error: '打不开'));
+        pages.add(CrawlPage(url: uri.toString(), status: 'failed', error: '打不开'));
         await Future<void>.delayed(gap);
         continue;
       }
       if (page.text.length < 40) {
         skipped += 1;
+        pages.add(CrawlPage(
+          url: uri.toString(),
+          status: 'skipped',
+          title: page.title,
+          error: '正文太短（${page.text.length} 字）',
+        ));
         notes.add('正文太短，跳过：${uri.toString()}');
         await Future<void>.delayed(gap);
         continue;
       }
       fetched += 1;
-      final outcome = await kb.putWebDoc(url: uri.toString(), text: page.text, title: page.title);
-      switch (outcome) {
-        case KbPutResult.added:
-          added += 1;
-        case KbPutResult.updated:
-          updated += 1;
-        case KbPutResult.unchanged:
-          unchanged += 1;
-        case KbPutResult.failed:
-          failed += 1;
-      }
-      pages.add(CrawlPage(url: uri.toString(), outcome: outcome, title: page.title));
+      fetchedPages.add(_FetchedPage(uri, page.text, page.title));
       if (level < maxDepth) {
         for (final link in page.links) {
           final key = _key(link);
@@ -187,6 +197,24 @@ class CrawlService {
         }
       }
       await Future<void>.delayed(gap);
+    }
+    // 收工后统一写盘：整轮抓取要么全部入库，要么（中途抛错）一份都不写。
+    for (final page in fetchedPages) {
+      final outcome = await kb.putWebDoc(url: page.uri.toString(), text: page.text, title: page.title);
+      switch (outcome) {
+        case KbPutResult.added:
+          added += 1;
+        case KbPutResult.updated:
+          updated += 1;
+        case KbPutResult.unchanged:
+          unchanged += 1;
+        case KbPutResult.failed:
+          failed += 1;
+      }
+      pages.add(CrawlPage(url: page.uri.toString(), status: outcome.name, title: page.title));
+    }
+    if (stopped && fetchedPages.isNotEmpty) {
+      notes.add('这次到时间上限提前收工，已抓的 ${fetchedPages.length} 页照样入库；剩下的链接可以再抓一次');
     }
     if (blocked > 0) notes.add('有 $blocked 页被这个站的 robots.txt 禁止，没抓');
     if (queue.isNotEmpty && !stopped && fetched >= pageCap) {

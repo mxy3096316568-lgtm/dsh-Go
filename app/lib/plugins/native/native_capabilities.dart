@@ -621,7 +621,17 @@ final nativeCapabilityDiscoveryProvider = FutureProvider.autoDispose<void>((ref)
       : Future.value(false);
   final (mediaFeatures, fileSupported) = await (mediaProbe, fileProbe).wait;
   if (!ref.mounted) return;
-  final features = {if (media) 'micro', ...mediaFeatures, if (fileSupported) 'files'};
+  // v1.4 host capabilities (§13) are this app's own code: if a plugin declares one,
+  // offer it. What it may actually do is decided per call (`native_host_api.dart`).
+  const host = {
+    'sessionText', 'selection', 'send', 'notify', 'phone', 'tools', 'schedule', 'pluginFiles',
+  };
+  final features = {
+    if (media) 'micro',
+    ...mediaFeatures,
+    if (fileSupported) 'files',
+    ...declarations.where(host.contains),
+  };
   ref.read(nativeFeatureStateProvider.notifier).setFeatures(features);
 });
 

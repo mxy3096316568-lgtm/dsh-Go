@@ -141,6 +141,27 @@ class KbStats {
 /// [KbIndex.putWebDoc] 的结果：新页面 / 内容变了 / 没变 / 写不进去。
 enum KbPutResult { added, updated, unchanged, failed }
 
+/// 一次 [KbIndex.importFile] 的结果。
+enum KbImportOutcome {
+  /// 复制进知识库目录并已重建索引。
+  added,
+
+  /// 文件本来就在知识库目录里，只重建了索引。
+  indexed,
+
+  /// 知识库里已经有内容完全相同的文档（sha1 一样）；没有复制。
+  duplicate,
+
+  /// 扩展名不在 [KbIndex.supportedExtensions] 里；没有复制任何东西。
+  unsupported,
+
+  /// 源文件不存在。
+  missing,
+
+  /// 复制或写索引失败。
+  failed,
+}
+
 /// 知识库索引：扫描 [rootDir]，把支持的文档抽成文本并切成重叠块，写入
 /// [indexDir]/index.json，再提供增量刷新、检索和增删入口。
 ///
@@ -353,21 +374,39 @@ class KbIndex {
 
   /// 把外部文件复制进 [rootDir] 并刷新索引。
   ///
+  /// 先按扩展名判断，再碰磁盘：不支持的类型直接回 [KbImportOutcome.unsupported]，
+  /// 一个字节都不复制（以前是先复制、建索引时才发现不支持，知识库目录里留个垃圾）。
+  ///
   /// 源文件已经在 rootDir 下时不再复制（用户可能只是拖进来了），直接刷新。
   /// 同名目标按 `名字 (1).md` 递增，避免覆盖用户已有知识。
-  Future<void> importFile(String sourcePath) async {
+  Future<KbImportOutcome> importFile(String sourcePath) async {
+    final source = File(sourcePath);
+    if (!supportedExtensions.contains(_extensionOf(_basename(sourcePath)))) {
+      return KbImportOutcome.unsupported;
+    }
+    if (!await source.exists()) return KbImportOutcome.missing;
     try {
       await _ensureLoaded();
-      final source = File(sourcePath);
-      if (!await source.exists()) return;
-      if (_relFromRoot(sourcePath) == null) {
-        await Directory(rootDir).create(recursive: true);
-        final target = '$rootDir/${_uniqueName(_basename(sourcePath))}';
-        await source.copy(target);
+      final rel = _relFromRoot(sourcePath);
+      if (rel != null) {
+        // 已经在知识库目录里：只是让索引认识它，不算新导入。
+        await refresh();
+        return KbImportOutcome.indexed;
       }
+      final bytes = await source.readAsBytes();
+      final hash = sha1.convert(bytes).toString();
+      // 同一个文件导两次不该变成两份文档：内容哈希一样就说「已经有了」。
+      if (_docs.any((doc) => doc.sha1 == hash)) {
+        return KbImportOutcome.duplicate;
+      }
+      await Directory(rootDir).create(recursive: true);
+      final target = '$rootDir/${_uniqueName(_basename(sourcePath))}';
+      await File(target).writeAsBytes(bytes, flush: true);
       await refresh();
+      return KbImportOutcome.added;
     } catch (_) {
-      // 复制或写索引失败就保持旧索引；调用方看到文档数没变即可判断没成功。
+      // 复制或写索引失败就保持旧索引；调用方看到结果就知道没成。
+      return KbImportOutcome.failed;
     }
   }
 
@@ -856,7 +895,17 @@ class KbIndex {
     if (!raw.contains('://')) raw = 'https://$raw';
     final uri = Uri.tryParse(raw);
     if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https') || uri.host.isEmpty) return null;
-    return uri.removeFragment().toString();
+    // 同一页只能对应一个文件：`https://host` 与 `https://host/`、`/a/` 与 `/a`、
+    // 主机名大小写、默认端口都算同一个 URL。以前它们各算一个 key，重抓一次就多
+    // 出一份 `标题 (1).md`，内容变了也不会覆盖原来那份。
+    final scheme = uri.scheme.toLowerCase();
+    final host = uri.host.toLowerCase();
+    final defaultPort = scheme == 'http' ? 80 : 443;
+    final port = uri.hasPort && uri.port != defaultPort ? ':${uri.port}' : '';
+    var path = uri.path.isEmpty ? '/' : uri.path;
+    if (path.length > 1 && path.endsWith('/')) path = path.substring(0, path.length - 1);
+    final query = uri.hasQuery ? '?${uri.query}' : '';
+    return '$scheme://$host$port$path$query';
   }
 
   /// `网页/example.com/标题.md`，重名就加 (1)；同名 URL 由调用方复用旧路径。
@@ -907,11 +956,22 @@ class KbIndex {
       if (decoded is! Map) return;
       final files = decoded['files'];
       final hashes = decoded['hashes'];
+      // 旧版 web.json 里的 key 没做规范化（带不带末尾斜杠各算一个），读进来时统一
+      // 成现在的写法，这样老用户的页面仍然对应原来那个文件，不会重抓一次多一份。
+      String canonical(String key) => _normalizeUrl(key) ?? key;
       if (files is Map) {
-        _webFiles = <String, String>{for (final entry in files.entries) '${entry.key}': '${entry.value}'};
+        final kept = <String, String>{};
+        for (final entry in files.entries) {
+          kept.putIfAbsent(canonical('${entry.key}'), () => '${entry.value}');
+        }
+        _webFiles = kept;
       }
       if (hashes is Map) {
-        _webHashes = <String, String>{for (final entry in hashes.entries) '${entry.key}': '${entry.value}'};
+        final kept = <String, String>{};
+        for (final entry in hashes.entries) {
+          kept.putIfAbsent(canonical('${entry.key}'), () => '${entry.value}');
+        }
+        _webHashes = kept;
       }
     } catch (_) {
       // 坏 JSON 只丢增量线索：下次抓取会把页面重写一遍，内容不会丢。

@@ -8,6 +8,7 @@ import androidx.webkit.ProxyConfig
 import androidx.webkit.ProxyController
 import java.io.File
 import java.net.InetSocketAddress
+import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.Executor
 
@@ -89,9 +90,9 @@ class ProxyPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             return status(context) + mapOf("error" to "no_config")
         }
         port = requestedPort.coerceIn(1024, 65535)
-        if (portAccepts(port)) {
-            lastError = "端口 $port 已被其他应用占用"
-            return status(context) + mapOf("error" to "port_in_use", "port" to port)
+        if (!portFree(port)) {
+            lastError = "端口 $port 已被其他应用占用，请换端口"
+            return status(context) + mapOf("error" to "port_in_use", "port" to port, "message" to lastError)
         }
         return try {
             val log = logFile(context)
@@ -100,6 +101,13 @@ class ProxyPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             if (!waitForPort(port, 20000)) {
                 started.destroy()
                 process = null
+                // The port may have been taken while the kernel was starting (another proxy
+                // app coming up, a leftover process, a second DSH Go): say so instead of
+                // blaming the subscription.
+                if (portAccepts(port)) {
+                    lastError = "端口 $port 已被其他应用占用，请换端口"
+                    return status(context) + mapOf("error" to "port_in_use", "port" to port, "message" to lastError)
+                }
                 lastError = "内核启动超时（20 秒端口没起来）"
                 return status(context) + mapOf("error" to "start_timeout", "log" to lastLines(log, 20))
             }
@@ -123,6 +131,9 @@ class ProxyPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             }
         }
         process = null
+        // Killing is asynchronous: the page shows 「已关闭」 only once the port can be bound
+        // again, otherwise the next start would report the old kernel as a port conflict.
+        waitPortFree(port, 3000)
         return status(context)
     }
 
@@ -155,6 +166,30 @@ class ProxyPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         }
     } catch (_: Exception) {
         false
+    }
+
+    /**
+     * Nothing is listening here. A real bind says more than a connect probe: it also catches a
+     * port held by a socket that is not (yet) accepting. `reuseAddress` keeps a socket in
+     * TIME_WAIT from a previous run from looking like a conflict.
+     */
+    private fun portFree(port: Int): Boolean = try {
+        ServerSocket().use { server ->
+            server.reuseAddress = true
+            server.bind(InetSocketAddress("127.0.0.1", port), 1)
+        }
+        true
+    } catch (_: Exception) {
+        false
+    }
+
+    private fun waitPortFree(port: Int, timeoutMs: Int): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (portFree(port)) return true
+            Thread.sleep(100)
+        }
+        return portFree(port)
     }
 
     private fun waitForPort(port: Int, timeoutMs: Int): Boolean {

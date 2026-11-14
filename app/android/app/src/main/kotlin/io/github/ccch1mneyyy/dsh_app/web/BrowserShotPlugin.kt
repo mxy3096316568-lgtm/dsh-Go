@@ -69,8 +69,17 @@ class BrowserShotPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCall
         val host = activity
         val wanted = call.argument<String>("url")?.takeIf { it.isNotBlank() }
         val web = host?.let { findWebView(it.window.decorView, wanted) }
-        if (web == null || web.width <= 0 || web.height <= 0) {
+        if (web == null) {
             result.success(mapOf<String, Any?>("error" to "browser_closed"))
+            return
+        }
+        if (web.width <= 0 || web.height <= 0) {
+            // The browser is open but its (hidden) host has no size yet: say so, instead of
+            // "browser_closed", which makes the model reopen a page that is already there.
+            result.success(mapOf<String, Any?>(
+                "error" to "browser_not_visible",
+                "message" to "浏览器现在没有可截图的画面，先让用户切到浏览器页面再截图",
+            ))
             return
         }
         val maxSide = (call.argument<Number>("maxSide")?.toInt() ?: 1600).coerceIn(320, 4096)
@@ -122,14 +131,23 @@ class BrowserShotPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCall
         collect(view, found)
         if (found.isEmpty()) return null
         if (wanted != null) {
-            found.firstOrNull { it.url == wanted }?.let { return it }
+            // Chrome adds/strips the trailing slash (`https://example.com` → `/`): an exact
+            // string compare then misses the page that is right there and falls back blind.
+            val target = normalizeUrl(wanted)
+            found.firstOrNull { normalizeUrl(it.url ?: "") == target }?.let { return it }
         }
         return found.maxByOrNull { it.width.toLong() * it.height }
     }
 
+    private fun normalizeUrl(url: String): String {
+        var value = url.trim().substringBefore('#')
+        while (value.length > 1 && value.endsWith("/")) value = value.dropLast(1)
+        return value
+    }
+
     private fun collect(view: View?, into: MutableList<WebView>) {
         if (view == null) return
-        if (view is WebView && view.width > 0 && view.height > 0) {
+        if (view is WebView) {
             into.add(view)
             return
         }

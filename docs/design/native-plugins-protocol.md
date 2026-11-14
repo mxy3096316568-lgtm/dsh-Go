@@ -5,6 +5,7 @@
 > 视图本身（组件树）不在本文：见 `docs/design/native-plugins-views.md` 与 `sdk/plugin-kit/schema/view.schema.json`。本文只规定视图怎么送达、多大、怎么更新。
 > 改协议：在提交说明里写一行「NA protocol v1 change: …」。v1 内只允许**加可选字段**；删字段、改含义、收紧上限一律算 v2。
 > **v1.1**（2026-10-25，桥接 0.3.0）：延后效果（§4.7）——handler 可返回 `pending`，结果之后经流推回发起点按的那条连接。全部是可选新增，v1 的 App 与插件不受影响。
+> **v1.4**（2026-11-15，桥接 0.5.0）：宿主能力（§13）——`sessionText` `selection` `send` `notify` `phone` `tools` `schedule` `pluginFiles`；按插件授权、危险能力每次确认。不声明这些能力的插件行为不变。
 > **v1.2**（2026-10-26，桥接 0.4.0）：可选能力（§11）——有限音频、开口检测、小字幕通道、悬浮字幕。只有声明了 `capabilities` 的插件、并且 App 在 `features` 里提出的能力才会启用；不声明、不提出时，清单解析、路由响应、流消息、效果校验与 v1.1 逐字节相同。
 
 ## 0. 一页看完
@@ -718,3 +719,108 @@ Android 文件走 `ACTION_OPEN_DOCUMENT` / `CATEGORY_OPENABLE`；图片在 API 3
 当前只有 Android 实现本适配器；无 native channel 则不协商。DSH Remote relay 的 `canReachDshGo` 为 false，不开放 files。现有 `fileUploads/upload` 返回对话附件 receipt，不提供插件可读位置，因此本能力用上述桥路由；SSH 复用原认证 HTTP 隧道，不添加 SFTP 或引擎协议。上游需提供中转 bridge 路由后才可支持 relay。
 
 作者约定、理由与 API 官方依据见 [files.md](../plugins/files.md)。自动测试覆盖真实 HTTP/WebSocket、Dart carrier、App tap runner 和原生预算；系统选择器 UI、厂商 provider 与真机进程重建另列设备回归，不将 API 编译等同于设备测量。
+
+---
+
+## 13. NA v1.4：宿主能力（`sessionText` / `selection` / `send` / `notify` / `phone` / `tools` / `schedule` / `pluginFiles`）
+
+v1.2 的四种能力是「App 画、插件给数据」，v1.3 的 `files` 是「用户选文件给插件」。v1.4 反过来：插件要**App 里才有的数据**（这段对话、刚选中的文字）或**只有 App 能做的动作**（填输入框、发通知、登记定时任务），以及两件宿主侧的事（跑手机工具、插件自己的数据目录）。
+
+协议主版本、路由和帧里的 `v` 仍是 `1`，只是 `features` 多认几个名字；不声明、不提出的插件行为与 v1.3 逐字节相同。
+
+| 能力 | 插件得到什么 | 执行者 | 风险 |
+|---|---|---|---|
+| `sessionText` | 当前对话的全文（只读，含工具调用摘要） | App | 中：数据外流 |
+| `selection` | 用户刚在消息里选中的文字 | App | 低 |
+| `send` | 一段文字填进输入框。**永远不自动发送** | App | 中 |
+| `notify` | 一条本机通知 | App | 低 |
+| `schedule` | 登记一个定时任务（归属这次点按的对话） | App → 引擎 `schedule/create` | 中 |
+| `phone` | 跑一个 `mcp__phone__*` 手机工具（读屏/点按…） | 桥接（引擎工具执行器） | 高 |
+| `tools` | 跑任意引擎工具 | 桥接（引擎工具执行器） | 高 |
+| `pluginFiles` | `$DSH_HOME/dsh-go/plugins/<pkg>/data/` 下的读写 | 桥接（路径沙箱） | 中 |
+
+`pluginFiles` 故意**不叫** `files`：`files` 是 v1.3 的用户选文件，语义不同；复用会让每个只想要选择器的插件悄悄多出目录写权限。
+
+### 13.1 声明与协商
+
+```jsonc
+"dshGo": {
+  "v": 1,
+  "capabilities": ["sessionText", "selection", "send", "notify"],
+  "contributes": { "composer.actions": [{ "id": "summarize", "label": "总结这段" }] }
+}
+```
+
+- `capabilities` 里不认识的值忽略并记 `invalid-field`（warn），和 v1.2 一样。
+- App 只有在**有插件声明**某项能力时才把它放进 `contributions?features=` 与流的 `hello.features`；`welcome.features` 回交集。没协商到 = 调用直接 `unsupported`，不发 `host.req`。
+- 这些能力不需要新的 `contributes` 资源，也不产生效果（`effects` 白名单不变）。
+
+### 13.2 插件怎么调
+
+只有 `ctx.dshGo` 一个入口：
+
+```js
+const { text } = await ctx.dshGo.capability('sessionText', { limit: 8000 });
+await ctx.dshGo.capability('send', { text: '帮我改一下这段' });   // 只填框
+const sel = await ctx.dshGo.capability('selection');
+await ctx.dshGo.capability('notify', { title: '跑完了', text: '3 个页面已入库' });
+await ctx.dshGo.capability('schedule', { title: '每天看一次', prompt: '检查这个页面', timing: { kind: 'daily', time: { hour: 9, minute: 0, time_zone: 'Asia/Shanghai' } } });
+const out = await ctx.dshGo.capability('phone', { tool: 'mcp__phone__screen' });
+await ctx.dshGo.capability('pluginFiles', { op: 'write', path: 'state.json', text: '{}' });
+```
+
+- 只能在**点按回调里**调用（`on(id)` / panel action）；在数据函数、注册钩子、模块顶层调用会抛 `unavailable`。原因：桥接需要知道哪条流、哪个插件、哪个会话。
+- 慢能力（`phone`、`tools`）请放在**延后结果**（§4.7）里做：普通 invoke 的 handler 只有 3 秒预算，等用户确认往往不够。
+- 成功返回 App 的值（`sessionText` / `selection` → `{ text }`，`schedule` → `{ task }`）；没有值的动作为 `true`。
+- 失败抛 `Error`，`error.code`：`unsupported`（没声明/没协商/没流）、`denied`（用户或开关拒绝）、`timeout`（App 没回）、`limit`（这条流上同时最多 4 个请求）、`too-large`、`bad-request`、`unavailable`、`not-found`、`failed`。
+
+### 13.3 线路上的帧
+
+桥接 → App（在发起这次点按的那条流上）：
+
+```json
+{ "t": "host.req", "id": "<24 字符>", "cap": "sessionText", "pkg": "demo",
+  "scope": { "sessionId": "…" }, "payload": { "limit": 8000 } }
+```
+
+App → 桥接，恰好一条：
+
+```json
+{ "t": "host.res", "id": "<同一个>", "ok": true, "value": { "text": "…" } }
+{ "t": "host.res", "id": "<同一个>", "ok": false, "code": "denied", "message": "…" }
+```
+
+- `id` 只在这次点按的流上有效；断流时桥接把等待中的请求以 `unavailable` 结束，不重放。
+- `phone` / `tools` / `pluginFiles` 的 `payload` 多一个 `summary`（工具名+参数，或文件操作+路径），供 App 的确认框显示；App 只回答「允许/拒绝」，实际工作在宿主侧完成。
+- 未知 `t` 一律忽略（前向兼容）；旧 App 不认识 `host.req` 时会超时，插件拿到 `timeout`。
+
+### 13.4 App 里的规矩
+
+| 项 | 规则 |
+|---|---|
+| 按插件授权 | 授权键 `plugin:<package>:<capability>`，记在 App 的授权记录里，可逐条撤销；插件不能继承别的插件或工具的授权 |
+| 每次确认 | `phone` / `tools` **永不给永久**：每次调用都弹确认，显示工具名与参数摘要 |
+| 总闸 | 能力控制 → 插件权限关掉时，所有 `host.req` 一律 `denied`；`wants`（输入框/剪贴板/消息）也一起失效 |
+| `send` | 只写进输入框并聚焦，发送键仍要人按 |
+| `sessionText` | 只读当前会话内存里的对话，不读别的会话、不读文件系统；按 UTF-8 截到 60 KiB |
+| `selection` | 只反映「长按 → 选择文字」刚选中的内容，不监听系统剪贴板 |
+| `notify` | 需要通知权限；没权限时回 `unavailable`，不假装成功 |
+| `schedule` | 目标固定为这次点按的对话；引擎不支持 `schedule/create` 时回 `failed` |
+| 插件目录 | `$DSH_HOME/dsh-go/plugins/<包名>/data/`；拒绝绝对路径与 `..`；单文件 ≤ 1 MiB，列表 ≤ 200 项 |
+
+### 13.5 上限
+
+| 项 | 上限 |
+|---|---|
+| 每连接同时未答的请求 | 4 |
+| 请求体 | 4 KiB；`tools.args` ≤ 2 KiB |
+| 应答体 | 64 KiB（`sessionText`）、8 KiB（`selection`）、4 KiB（`schedule`）、1 KiB（其余） |
+| 超时 | `sessionText` 8 s、`selection`/`send`/`pluginFiles` 4 s、`notify` 6 s、`schedule` 10 s、`phone`/`tools` 60 s |
+| `pluginFiles` | 单文件读/写 ≤ 1 MiB |
+
+### 13.6 实现与测试
+
+- 桥接：`lib/native/host-runtime.js`（请求/应答、`phone`/`tools`/`pluginFiles` 的实际执行）、`lib/native/capabilities.js`（名字与上限）、`lib/native/routes.js`（把点按的流水线包进 `AsyncLocalStorage`，接 `host.res`，断流时清请求）。
+- App：`app/lib/plugins/native/native_host_api.dart`（同意、分发、回答）、`native_selection.dart` 的选区来源（`NativeSelectionStore`，挂在消息的「选择文字」上）。
+- 测试：`runtime/tests/native-host-capabilities.test.mjs`（声明→协商→请求→应答→超时/断流/越权/越界）；`app/test/plugins/native/native_host_api_test.dart`。
+- 端到端：手机上的 App 只在 `canReachDshGo` 时协商这些能力；relay 中转主机不提供 `/dsh-go/*`，这些能力不可用。

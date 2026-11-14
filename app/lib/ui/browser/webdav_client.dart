@@ -188,7 +188,8 @@ class WebdavClient {
       for (final entry in _entries(response as String, uri)) {
         final relative = entry['path'] as String;
         if (relative == folder) continue;
-        if ('${entry['name']}'.toLowerCase().contains(needle) || relative.toLowerCase().contains(needle)) {
+        // 只匹配名字：拿整条路径匹配的话，查 "a" 会把 `/ai 做游戏/` 下所有子项都算命中。
+        if ('${entry['name']}'.toLowerCase().contains(needle)) {
           hits.add(entry);
         }
         if (entry['dir'] == true && depth < 2) queue.add((relative, depth + 1));
@@ -262,6 +263,13 @@ class WebdavClient {
     }
   }
 
+  /// 账号地址里的目录部分（`https://host/webdav` → `/webdav/`），作为路径的基准。
+  static String _accountBasePath() {
+    final base = Uri.parse(WebdavConfig.address.trim());
+    final path = base.path.endsWith('/') ? base.path : '${base.path}/';
+    return path.isEmpty ? '/' : path;
+  }
+
   static Uri _uri(String path) {
     final base = Uri.parse(WebdavConfig.address.trim());
     final clean = _normalized(path);
@@ -278,14 +286,19 @@ class WebdavClient {
 
   static List<Map<String, Object?>> _entries(String xml, Uri base) {
     final out = <Map<String, Object?>>[];
-    final basePath = base.path.endsWith('/') ? base.path : '${base.path}/';
+    // 一律相对账号根（地址里的路径，比如 /webdav）算：以前相对「这次查的目录」算，
+    // search 从子目录拿到的就不是绝对路径，`/webdav/ai 做游戏/规范/` 再拿去 ls
+    // 或 download 都 404；而 ls("/") 又是干净路径，两边对不上。
+    final accountPath = _accountBasePath();
     for (final match in RegExp(r'<[A-Za-z0-9]*:?response[\s>].*?</[A-Za-z0-9]*:?response>', dotAll: true).allMatches(xml)) {
       final block = match.group(0)!;
-      final href = _tag(block, 'href');
-      if (href == null || href.isEmpty) continue;
-      final decoded = Uri.decodeFull(href);
-      final path = decoded.startsWith(basePath)
-          ? '/${decoded.substring(basePath.length)}'
+      final raw = _tag(block, 'href');
+      if (raw == null || raw.isEmpty) continue;
+      final decodedHref = Uri.decodeFull(raw);
+      final hrefPath = Uri.tryParse(decodedHref)?.path ?? decodedHref;
+      final decoded = hrefPath.isEmpty ? '/' : hrefPath;
+      final path = decoded.startsWith(accountPath)
+          ? '/${decoded.substring(accountPath.length)}'
           : (decoded.startsWith('/') ? decoded : '/$decoded');
       // A folder may come back as <d:collection/> or, on servers that answer only
       // the asked-for props, just as a trailing-slash href.

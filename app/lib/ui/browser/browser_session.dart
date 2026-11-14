@@ -56,6 +56,9 @@ class BrowserSession {
   /// Refuse beyond this: each tab is a page the person has to close by hand.
   static const maxTabs = 8;
 
+  /// Schemes the WebView may navigate to; anything else is refused before loading.
+  static const allowedSchemes = {'http', 'https', 'about', 'data', 'blob', 'file'};
+
   /// Where screenshots go: shared storage, so the engine can read them back.
   static const screenshotDir = '/sdcard/Download/DSH-Go/screenshots';
 
@@ -143,8 +146,7 @@ class BrowserSession {
           onNavigationRequest: (request) {
             final uri = Uri.tryParse(request.url);
             if (uri == null) return NavigationDecision.prevent;
-            const allowed = {'http', 'https', 'about', 'data', 'blob', 'file'};
-            if (allowed.contains(uri.scheme)) return NavigationDecision.navigate;
+            if (allowedSchemes.contains(uri.scheme)) return NavigationDecision.navigate;
             lastBlockedScheme.value = uri.scheme;
             return NavigationDecision.prevent;
           },
@@ -238,7 +240,23 @@ class BrowserSession {
     _loading = Completer<void>();
     await controller.loadRequest(Uri.parse(target));
     await waitLoaded();
-    return url.value.isEmpty ? target : url.value;
+    // Not [url]: a load that failed never fires `onPageFinished`, so the notifier can
+    // still name the page from before — the old `finalUrl` was whichever WebView load
+    // finished last, which on a tab switch is the tab that was left behind.
+    final finalUrl = await currentUrl();
+    if (finalUrl.isEmpty) return target;
+    final tab = currentTab;
+    if (tab != null) tab.url = finalUrl;
+    return finalUrl;
+  }
+
+  /// Where the WebView is right now; empty when it has not committed a page.
+  Future<String> currentUrl() async {
+    try {
+      final value = (await controller.currentUrl())?.trim() ?? '';
+      if (value.isNotEmpty) return value;
+    } catch (_) {}
+    return url.value.trim();
   }
 
   /// Opens a blank tab the person (or the assistant) can type into.
@@ -263,13 +281,28 @@ class BrowserSession {
     if (_tabs.isEmpty) return;
     final target = index.clamp(0, _tabs.length - 1).toInt();
     if (target == activeTab.value) return;
+    final tab = _tabs[target];
+    final previous = activeTab.value;
+    final uri = tab.url.isEmpty ? null : Uri.tryParse(tab.url);
+    if (tab.url.isNotEmpty && (uri == null || !allowedSchemes.contains(uri.scheme))) {
+      // Refuse before touching the selection: a tab the WebView cannot load must not
+      // replace the one on screen.
+      throw BrowserSwitchFailed('这个标签的地址打不开：${tab.url}');
+    }
     activeTab.value = target;
     _bumpTabs();
-    final tab = _tabs[target];
-    if (tab.url.isEmpty) return;
-    _loading = Completer<void>();
-    await controller.loadRequest(Uri.parse(tab.url));
-    await waitLoaded();
+    if (uri == null) return;
+    try {
+      _loading = Completer<void>();
+      await controller.loadRequest(uri);
+      await waitLoaded();
+    } catch (error) {
+      // Put the selection back: an exception here used to reach the route as a bare
+      // 500, which the app read as "the tabs are gone".
+      activeTab.value = previous;
+      _bumpTabs();
+      throw BrowserSwitchFailed('切换到这个标签失败：$error');
+    }
   }
 
   /// Closes the tab at [index]; the neighbouring one takes its place. Closing
@@ -293,8 +326,10 @@ class BrowserSession {
     final tab = _tabs[next];
     if (tab.url.isEmpty) return;
     _loading = Completer<void>();
+    // Start the neighbour's load but do not sit on it: a slow page made
+    // `browser_tab_close` run past the tool timeout even though the tab was gone.
+    // A following read waits for the load itself (see `/read`).
     await controller.loadRequest(Uri.parse(tab.url));
-    await waitLoaded();
   }
 
   /// Screenshot of what the page currently shows (native: Flutter cannot
@@ -305,7 +340,9 @@ class BrowserSession {
       final result = await const MethodChannel('dsh/browser-shot')
           .invokeMapMethod<String, Object?>('capture', {
             'dir': screenshotDir,
-            'url': url.value,
+            // The live URL, not [url]: right after `open` the notifier can still hold
+            // the previous page, and the native side picks the WebView by URL.
+            'url': await currentUrl(),
             'maxSide': 1600,
             'quality': 80,
           });
@@ -317,10 +354,8 @@ class BrowserSession {
     }
   }
 
-  /// Feeds [path] to the file input [ref] (browser_upload). The chooser the
-  /// page opens is answered with that one file, so no system picker appears.
-  /// Feeds [path] to the file input [ref] by filling `input.files` with a real
-  /// `File` and firing `input`/`change`.
+  /// Feeds [path] to the file input [ref] (browser_upload) by filling `input.files`
+  /// with a real `File` and firing `input`/`change`.
   ///
   /// The click-into-the-chooser route does not work here: Chrome only opens a file
   /// chooser for a trusted (user) gesture, and a tool's programmatic `click()` is
@@ -373,8 +408,8 @@ class BrowserSession {
       final chunk = base64Data.substring(offset, end);
       await run('window.__dshUp += ${jsonEncode(chunk)}; true');
     }
-    final script = '''
-(async () => {
+    final fillScript = '''
+(() => {
   const el = document.querySelector('[data-dsh-ref="$ref"]');
   if (!el) return "missing";
   if (String(el.tagName || "").toLowerCase() !== "input" || String(el.type || "").toLowerCase() !== "file") return "not_file";
@@ -386,27 +421,77 @@ class BrowserSession {
   const transfer = new DataTransfer();
   transfer.items.add(file);
   el.files = transfer.files;
+  // Remember the element and the count: a page that rebuilds its input in the change
+  // handler detaches this one, and the file it got is still the one we handed over.
+  window.__dshUpTarget = el;
+  window.__dshUpCount = transfer.files.length;
   el.dispatchEvent(new Event("input", { bubbles: true }));
   el.dispatchEvent(new Event("change", { bubbles: true }));
-  // A page may move/replace its input in the change handler; report what stands now,
-  // after giving that handler a tick to run.
-  await new Promise((resolve) => setTimeout(resolve, 50));
-  const picked = el.files && el.files[0];
-  return { count: el.files ? el.files.length : 0, name: picked ? picked.name : "" };
+  return "filled";
 })()
 ''';
-    final result = await BrowserApi.runJs(this, script, 60000);
-    if (result is Map && result['error'] != null) return Map<String, Object?>.from(result);
-    final value = result is Map ? result['result'] : null;
-    if (value == 'missing') return {'error': 'not_found', 'message': '这个编号不存在，请重新 snapshot'};
-    if (value == 'not_file') {
+    final fill = await BrowserApi.runJs(this, fillScript, 60000);
+    if (fill is Map && fill['error'] != null) return Map<String, Object?>.from(fill);
+    final filled = fill is Map ? fill['result'] : null;
+    if (filled == 'missing') return {'error': 'not_found', 'message': '这个编号不存在，请重新 snapshot'};
+    if (filled == 'not_file') {
       return {'error': 'unsupported', 'message': '这个编号不是文件选择框（<input type=file>）'};
     }
-    final count = value is num ? value.toInt() : (value is Map ? (value['count'] as num?)?.toInt() ?? 0 : 0);
-    if (count >= 1) {
-      return {'ok': true, 'path': path, 'name': name, 'bytes': bytes.length, 'files': count};
+    // A page may fill `input.files` from its own change handler, a frame or a re-render
+    // later. Ask again for up to two seconds instead of judging one snapshot: a false
+    // failure here makes the model upload the same file over and over.
+    final probeScript = '''
+(() => {
+  const el = document.querySelector('[data-dsh-ref="$ref"]');
+  const target = window.__dshUpTarget;
+  if (!el) return { state: "missing", detached: !!(target && target.isConnected === false) };
+  if (String(el.tagName || "").toLowerCase() !== "input" || String(el.type || "").toLowerCase() !== "file") return { state: "not_file" };
+  const files = el.files;
+  return { state: "ok", count: files ? files.length : 0, name: files && files[0] ? files[0].name : "" };
+})()
+''';
+    var count = 0;
+    var replaced = false;
+    for (var attempt = 0; attempt < 10; attempt++) {
+      if (attempt > 0) await Future<void>.delayed(const Duration(milliseconds: 200));
+      final probe = await BrowserApi.runJs(this, probeScript, 5000);
+      final value = probe is Map ? probe['result'] : null;
+      if (value is! Map) continue;
+      final state = value['state'];
+      if (state == 'missing') {
+        if (value['detached'] == true) {
+          // The page replaced its input: it took the file and rebuilt the control.
+          replaced = true;
+          count = (value['count'] as num?)?.toInt() ?? 1;
+          if (count < 1) count = 1;
+          break;
+        }
+        return {'error': 'not_found', 'message': '这个编号不存在，请重新 snapshot'};
+      }
+      if (state == 'not_file') {
+        return {'error': 'unsupported', 'message': '这个编号不是文件选择框（<input type=file>）'};
+      }
+      final picked = (value['count'] as num?)?.toInt() ?? 0;
+      if (picked >= 1) {
+        count = picked;
+        break;
+      }
     }
-    return {'error': 'unsupported', 'message': '页面没有接受这个文件（input.files 还是空的）'};
+    if (count >= 1) {
+      return {
+        'ok': true,
+        'path': path,
+        'name': name,
+        'bytes': bytes.length,
+        'files': count,
+        if (replaced) 'replaced': true,
+      };
+    }
+    return {
+      'error': 'unsupported',
+      'message': '页面没有接受这个文件（等了 2 秒，input.files 还是空的）',
+      'files': 0,
+    };
   }
 
   Map<String, Object?>? _uploadProblem(File file) {
@@ -452,6 +537,16 @@ class BrowserSession {
     }
     return text;
   }
+}
+
+/// Raised when a tab cannot be shown; the tab list and the old selection stay.
+class BrowserSwitchFailed implements Exception {
+  const BrowserSwitchFailed(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
 }
 
 /// Raised when a ninth tab is asked for.
@@ -619,13 +714,32 @@ class BrowserApi {
         if (!session.opened) return {'error': 'browser_closed'};
         final index = _tabIndex(session, body);
         if (index == null) return {'error': 'not_found', 'message': '没有这个标签'};
-        await session.switchTo(index);
+        try {
+          await session.switchTo(index);
+        } on BrowserSwitchFailed catch (error) {
+          // The tabs are still there and the old one is still selected; say what failed.
+          return {
+            'error': 'switch_failed',
+            'message': error.message,
+            'tabs': _tabsOf(session),
+            'activeIndex': session.activeTab.value,
+          };
+        }
         return {'ok': true, 'tabs': _tabsOf(session), 'activeIndex': session.activeTab.value};
       case '/tab-close':
         if (!session.opened) return {'error': 'browser_closed'};
         final index = _tabIndex(session, body);
         if (index == null) return {'error': 'not_found', 'message': '没有这个标签'};
-        await session.closeTab(index);
+        try {
+          await session.closeTab(index);
+        } on Object catch (error) {
+          return {
+            'error': 'switch_failed',
+            'message': '关闭标签后打开下一个失败：$error',
+            'tabs': _tabsOf(session),
+            'activeIndex': session.activeTab.value,
+          };
+        }
         if (!session.opened) return {'ok': true, 'tabs': const [], 'closed': true};
         return {'ok': true, 'tabs': _tabsOf(session), 'activeIndex': session.activeTab.value};
       case '/screenshot':
@@ -641,7 +755,13 @@ class BrowserApi {
       case '/snapshot':
         if (!session.opened) return {'error': 'browser_closed'};
         final raw = await session.run(_snapshotScript);
-        return {'elements': _elements(raw)};
+        final snapshot = _snapshot(raw);
+        return {
+          'ok': true,
+          'elements': snapshot.elements,
+          if (snapshot.truncated) 'truncated': true,
+          if (snapshot.truncated) 'note': '只列了前 40 个可操作元素，页面上还有更多（缩小范围或直接 browser_js）',
+        };
       case '/read':
         if (!session.opened) return {'error': 'browser_closed'};
         await session.waitLoaded(const Duration(seconds: 3));
@@ -730,9 +850,33 @@ class BrowserApi {
       case '/kb/import':
         final path = (body['path'] as String?)?.trim() ?? '';
         if (path.isEmpty) return {'error': 'path required'};
-        await _kb.importFile(path);
+        final outcome = await _kb.importFile(path);
+        if (outcome == KbImportOutcome.unsupported) {
+          final dot = path.lastIndexOf('.');
+          final ext = dot > 0 ? path.substring(dot + 1).toLowerCase() : '';
+          return {
+            'error': 'unsupported_type',
+            'message': '不支持${ext.isEmpty ? '没有扩展名的文件' : ' .$ext 文件'}'
+                '（只收 ${KbIndex.supportedExtensions.join(' / ')}），没有复制进知识库',
+          };
+        }
+        if (outcome == KbImportOutcome.missing) {
+          return {'error': 'not_found', 'message': '这个文件不在手机上：$path'};
+        }
+        if (outcome == KbImportOutcome.failed) {
+          return {'error': 'import_failed', 'message': '导入失败：复制或重建索引时出错（磁盘满或没有写权限）'};
+        }
         final after = await _kb.stats();
-        return {'ok': true, 'docs': after.docs, 'chunks': after.chunks};
+        if (outcome == KbImportOutcome.duplicate) {
+          return {
+            'ok': true,
+            'outcome': outcome.name,
+            'note': '知识库里已经有内容完全相同的文档，没有重复复制',
+            'docs': after.docs,
+            'chunks': after.chunks,
+          };
+        }
+        return {'ok': true, 'outcome': outcome.name, 'docs': after.docs, 'chunks': after.chunks};
       case '/kb/reindex':
         final rebuilt = await _kb.rebuild();
         return {'ok': true, 'docs': rebuilt.docs, 'chunks': rebuilt.chunks, 'bytes': rebuilt.totalBytes};
@@ -962,7 +1106,10 @@ true
   const sel = 'a,button,input,textarea,select,[role=button],[onclick]';
   const seen = new Set();
   const out = [];
-  for (const e of document.querySelectorAll(sel)) {
+  const all = Array.from(document.querySelectorAll(sel));
+  let i = 0;
+  for (; i < all.length; i++) {
+    const e = all[i];
     const isFile = e.tagName === 'INPUT' && String(e.type || '').toLowerCase() === 'file';
     // A file input is usually display:none behind a styled label, and takes no
     // text: keep it anyway, or uploading has no ref to aim at.
@@ -979,18 +1126,36 @@ true
     out.push(item);
     if (out.length >= 40) break;
   }
-  return JSON.stringify(out);
+  // 40 条是上限，不是页面到底了：后面还有可见元素时明确说一声。
+  let truncated = false;
+  for (; i < all.length; i++) {
+    const e = all[i];
+    const isFile = e.tagName === 'INPUT' && String(e.type || '').toLowerCase() === 'file';
+    if (!isFile && e.getClientRects().length === 0) continue;
+    const t = (e.innerText || e.value || e.getAttribute('aria-label') || e.placeholder || '').trim();
+    if (!t) continue;
+    truncated = true;
+    break;
+  }
+  return JSON.stringify({ elements: out, truncated });
 })()
 ''';
 
-  static List<Object?> _elements(Object? raw) {
+  static ({List<Object?> elements, bool truncated}) _snapshot(Object? raw) {
     final text = BrowserSession._stringOf(raw);
-    if (text.isEmpty) return const [];
+    if (text.isEmpty) return (elements: const [], truncated: false);
     try {
       final decoded = jsonDecode(text);
-      if (decoded is List) return decoded;
+      if (decoded is List) return (elements: decoded, truncated: false);
+      if (decoded is Map) {
+        final elements = decoded['elements'];
+        return (
+          elements: elements is List ? elements : const [],
+          truncated: decoded['truncated'] == true,
+        );
+      }
     } catch (_) {}
-    return const [];
+    return (elements: const [], truncated: false);
   }
 
   static String newToken() {

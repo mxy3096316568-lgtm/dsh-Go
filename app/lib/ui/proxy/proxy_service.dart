@@ -7,6 +7,8 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'clash_config.dart';
+
 /// 内置代理's live state (channel `dsh/proxy`, proxy/ProxyPlugin.kt).
 class ProxyState {
   const ProxyState({
@@ -120,17 +122,8 @@ class ProxyService {
       return '填一个 https:// 开头的 Clash 订阅地址，或直接粘贴 Clash 配置';
     }
     final chosen = (port ?? state.value.port).clamp(1024, 65535).toInt();
-    // A subscription brings its own ports and controller; ours have to win, so the
-    // conflicting keys are dropped rather than left for the kernel to reject.
-    final cleaned = yaml.replaceAll(
-      RegExp(
-        r'^(mixed-port|port|socks-port|redir-port|tproxy-port|allow-lan|bind-address|external-controller|secret|external-ui|mode|log-level):.*$',
-        multiLine: true,
-      ),
-      '',
-    );
-    final config = 'mixed-port: $chosen\nallow-lan: false\nbind-address: 127.0.0.1\n'
-        'external-controller: 127.0.0.1:9091\nmode: rule\nlog-level: warning\n$cleaned';
+    final config = sanitizeClashConfig(yaml, port: chosen);
+    _configHead = config.split('\n').take(15).join('\n');
     try {
       final written = await _channel.invokeMapMethod<String, Object?>('writeConfig', {'content': config});
       if (written?['error'] != null) return '保存配置失败：${written?['message'] ?? written?['error']}';
@@ -175,55 +168,19 @@ class ProxyService {
   }
 
   static Future<String> log() async {
+    String kernel;
     try {
-      return (await _channel.invokeListMethod<String>('log') ?? const []).join('\n');
+      kernel = (await _channel.invokeListMethod<String>('log') ?? const []).join('\n');
     } catch (_) {
-      return '';
+      kernel = '';
     }
+    if (_configHead.isEmpty || state.value.error == null) return kernel;
+    return '--- 本次生成的配置（前 15 行）---\n$_configHead\n--- 内核日志 ---\n$kernel';
   }
 
-  static Future<ProxyState> _status() async {
-    try {
-      final map = await _channel.invokeMapMethod<String, Object?>('status');
-      return _merge(map);
-    } on PlatformException {
-      return state.value.copyWith(kernel: false);
-    } on MissingPluginException {
-      return state.value.copyWith(kernel: false);
-    }
-  }
-
-  static ProxyState _merge(Map<String, Object?>? map) {
-    if (map == null) return state.value;
-    final error = map['error'] as String?;
-    final port = (map['port'] as num?)?.toInt() ?? state.value.port;
-    return state.value.copyWith(
-      running: map['running'] == true,
-      port: port,
-      webViewProxy: map['webViewProxy'] == true,
-      kernel: map['kernel'] == true,
-      configured: map['config'] == true,
-      error: error,
-      hint: _hintFor(map),
-    );
-  }
-
-  static String _hintFor(Map<String, Object?> map) {
-    switch (map['error']) {
-      case 'kernel_missing':
-        return '这个安装包里没有代理内核（libmihomo.so），需要重新构建';
-      case 'no_config':
-        return '还没有导入订阅';
-      case 'start_timeout':
-        return '内核启动了但 20 秒内端口没就绪，可能是订阅配置有问题（看下面的日志）';
-      case 'start_failed':
-        return '内核启动失败：${map['message'] ?? ''}';
-      case 'write_failed':
-        return '配置写不进 App 目录：${map['message'] ?? ''}';
-      default:
-        return '';
-    }
-  }
+  /// The first 15 lines of the config this app wrote, kept for the log dialog when
+  /// the kernel refuses to start: the mihomo log alone does not say what it was fed.
+  static String _configHead = '';
 
   static void _applyRoute() {
     final current = state.value;

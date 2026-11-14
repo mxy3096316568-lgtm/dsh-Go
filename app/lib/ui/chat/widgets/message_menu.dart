@@ -15,6 +15,7 @@ import '../../theme/app_icons.dart';
 import '../../theme/theme.dart';
 import '../render/markdown_body.dart';
 import 'message_actions.dart' show copyMessage;
+import '../../../plugins/native/native_host_api.dart';
 
 /// What the message menu offers, in its order. The ones with a [hint] open a
 /// new conversation and sit in the second group.
@@ -367,7 +368,11 @@ class _SelectTextSheetState extends State<_SelectTextSheet> {
           child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(24, 4, 24, 32),
             child: SelectionArea(
-              onSelectionChanged: (content) => _selected = content?.plainText ?? '',
+              onSelectionChanged: (content) {
+                _selected = content?.plainText ?? '';
+                // v1.4 `selection`: a plugin's action sees what was just selected here.
+                NativeSelectionStore.instance.set(_selected);
+              },
               contextMenuBuilder: _toolbar,
               child: widget.markdown
                   ? MarkdownBody(text: widget.text, selectable: false)
