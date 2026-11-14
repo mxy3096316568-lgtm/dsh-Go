@@ -67,6 +67,18 @@ class _WatchPageState extends State<WatchPage> {
     showBriefNotice(context, changed ? '有变化，已发通知' : '和上次一样');
   }
 
+  /// 「现在都看一遍」: 立刻检查所有到点的看护。
+  Future<void> _checkAll() async {
+    setState(() => _busy = true);
+    final count = await WatchService.instance.tick();
+    if (!mounted) return;
+    setState(() {
+      _items = WatchService.instance.items;
+      _busy = false;
+    });
+    showBriefNotice(context, count == 0 ? '还没到检查时间' : '看了 $count 条');
+  }
+
   Future<void> _add() async {
     final url = TextEditingController();
     final label = TextEditingController();
@@ -258,18 +270,7 @@ class _WatchPageState extends State<WatchPage> {
               icon: AppIcons.refresh,
               title: '现在都看一遍',
               subtitle: _busy ? '正在看…' : '不用等间隔，立刻检查所有到点的看护',
-              onTap: _busy
-                  ? null
-                  : () async {
-                      setState(() => _busy = true);
-                      final count = await WatchService.instance.tick();
-                      if (!mounted) return;
-                      setState(() {
-                        _items = WatchService.instance.items;
-                        _busy = false;
-                      });
-                      showBriefNotice(context, count == 0 ? '还没到检查时间' : '看了 $count 条');
-                    },
+              onTap: _busy ? null : _checkAll,
             ),
           ],
         ),
