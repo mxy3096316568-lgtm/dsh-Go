@@ -40,7 +40,6 @@ import '../safe_mode/safe_mode_banner.dart';
 import '../share/share_entry.dart';
 import '../theme/app_icons.dart';
 import '../theme/theme.dart';
-import '../web/mode_home.dart';
 import '../workspace/text_prompt.dart';
 import '../workspace/workspace_switcher.dart';
 import '../workspace/workspaces_page.dart';
@@ -164,9 +163,6 @@ class SessionsDrawer extends ConsumerWidget {
                           child: FittedBox(fit: BoxFit.scaleDown, child: BrandLockup(height: 19)),
                         ),
                       ),
-                      // 网页模式, quietly: the one solid element stays 新对话.
-                      const WebModeKey(tier: GlassTier.pill),
-                      const SizedBox(width: 8),
                       // When even the lockup's room is not enough, 新对话
                       // keeps its glyph and lets its words go.
                       NewChatButton(
