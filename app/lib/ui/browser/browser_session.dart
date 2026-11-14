@@ -9,6 +9,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 
 import '../../state/capability_guard.dart';
+import '../kb/kb_index.dart';
 import '../notify/notify_bridge.dart';
 import '../proxy/proxy_service.dart';
 import 'site_store.dart';
@@ -523,6 +524,12 @@ class BrowserApi {
     '/dav/search': ['cloud'],
     '/dav/upload': ['cloud', 'files'],
     '/dav/download': ['cloud', 'files'],
+    '/kb/search': ['files'],
+    '/kb/stats': ['files'],
+    '/kb/docs': ['files'],
+    '/kb/read': ['files'],
+    '/kb/import': ['files'],
+    '/kb/reindex': ['files'],
     '/notify/status': ['notify'],
     '/notify/list': ['notify'],
     '/notify/search': ['notify'],
@@ -661,6 +668,57 @@ class BrowserApi {
           return {'error': 'not_found', 'message': '这个编号不存在，请重新 snapshot'};
         }
         return {'ok': true};
+      case '/kb/search':
+        final query = (body['query'] as String?)?.trim() ?? '';
+        if (query.isEmpty) return {'error': 'query required'};
+        final hits = await _kb.search(query, limit: (body['limit'] as int?) ?? 8);
+        return {
+          'ok': true,
+          'hits': [
+            for (final hit in hits)
+              {
+                'doc': hit.docPath,
+                'chunk': hit.chunkIndex,
+                'score': hit.score,
+                'snippet': hit.snippet,
+                'text': hit.text,
+              },
+          ],
+        };
+      case '/kb/stats':
+        final stats = await _kb.stats();
+        return {
+          'ok': true,
+          'docs': stats.docs,
+          'chunks': stats.chunks,
+          'bytes': stats.totalBytes,
+          'builtAt': stats.builtAtMs,
+          'skipped': stats.skippedFiles,
+          'root': KbIndex.rootDir,
+        };
+      case '/kb/docs':
+        final docs = await _kb.docs();
+        return {
+          'ok': true,
+          'docs': [
+            for (final doc in docs) {'path': doc.path, 'bytes': doc.bytes, 'chunks': doc.chunks.length},
+          ],
+        };
+      case '/kb/read':
+        final doc = (body['doc'] as String?) ?? '';
+        final chunk = (body['chunk'] as int?) ?? 0;
+        final text = _kb.readChunkText(doc, chunk);
+        if (text == null) return {'error': 'not_found', 'message': '没有这个块，先 kb_search'};
+        return {'ok': true, 'doc': doc, 'chunk': chunk, 'text': text};
+      case '/kb/import':
+        final path = (body['path'] as String?)?.trim() ?? '';
+        if (path.isEmpty) return {'error': 'path required'};
+        await _kb.importFile(path);
+        final after = await _kb.stats();
+        return {'ok': true, 'docs': after.docs, 'chunks': after.chunks};
+      case '/kb/reindex':
+        final rebuilt = await _kb.rebuild();
+        return {'ok': true, 'docs': rebuilt.docs, 'chunks': rebuilt.chunks, 'bytes': rebuilt.totalBytes};
       case '/notify/status':
         final status = await NotifyBridge.status();
         return {'ok': true, 'granted': status.granted, 'count': status.count};
@@ -738,6 +796,9 @@ class BrowserApi {
   static Future<List<Map<String, Object?>>> _ruleList() async => [
     for (final rule in await NotifyBridge.rules()) {'keyword': rule.keyword, 'action': rule.action},
   ];
+
+  /// 知识库: one instance is enough; it keeps the parsed index in memory.
+  static final KbIndex _kb = KbIndex();
 
   static Object _notifyDenied() => {
     'error': 'denied',

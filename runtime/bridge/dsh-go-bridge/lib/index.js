@@ -38,6 +38,7 @@ import { STREAM_PATH, createNativeRoutes } from "./native/routes.js";
 import { registerBrowserTools } from "./browser-tools.js";
 import { registerWebdavTools } from "./webdav-tools.js";
 import { registerNotifyTools } from "./notify-tools.js";
+import { registerKbTools } from "./kb-tools.js";
 
 export const name = "dsh-go-bridge";
 
@@ -337,6 +338,18 @@ export function apply(ctx, config) {
         return undefined;
       }
     }, "dsh-go-bridge: browser tools");
+  });
+
+  // 知识库工具: 用户自己的文档, 检索与导入.
+  ctx.inject(["tools"], (toolCtx) => {
+    toolCtx.effect(() => {
+      try {
+        return registerKbTools(toolCtx);
+      } catch (error) {
+        toolCtx.logger?.warn?.("dsh-go-bridge: kb tools not registered", error);
+        return undefined;
+      }
+    }, "dsh-go-bridge: kb tools");
   });
 
   // 通知中枢工具: what the app's notification listener has read.

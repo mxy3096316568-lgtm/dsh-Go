@@ -21,6 +21,7 @@
     "lib/browser-tools.js",
     "lib/webdav-tools.js",
     "lib/notify-tools.js",
+    "lib/kb-tools.js",
     "lib/companion/*.js",
     "lib/native/*.js",
     "cordis.patch.yml",
