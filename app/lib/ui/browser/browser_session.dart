@@ -348,14 +348,16 @@ class BrowserSession {
   /// The page opened a file input: hand it the file [upload] chose, or ask the
   /// person which one when they tapped the input themselves.
   Future<List<String>> _chooseFiles(FileSelectorParams params) async {
+    // webview_flutter hands the answer to Chrome as `Uri.parse(path)`, and a bare
+    // path has no scheme there: send a file:// URI, which Chrome can open.
     final pending = _pendingUpload;
     if (pending != null) {
       final wait = _uploadWait;
       if (wait != null && !wait.isCompleted) wait.complete(pending);
-      return [pending];
+      return [Uri.file(pending).toString()];
     }
     final picked = await BrowserUi.pickFile(params.acceptTypes);
-    return picked == null ? const [] : [picked];
+    return picked == null ? const [] : [Uri.file(picked).toString()];
   }
 
   static String _stringOf(Object? raw) {
