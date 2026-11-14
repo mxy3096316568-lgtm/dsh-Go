@@ -65,12 +65,22 @@ class _ProxyPageState extends State<ProxyPage> {
   }
 
   Future<void> _toggle(bool on) async {
+    if (on && !ProxyService.state.value.configured) {
+      _say('还没有订阅：先把订阅地址填上，点「导入并启动」', failed: true);
+      return;
+    }
     setState(() => _busy = true);
+    _say(on ? '启动中…' : '正在关闭…');
     try {
       if (on) {
         final next = await ProxyService.start();
         if (!next.running) {
-          _say(next.hint.isEmpty ? '没起来' : next.hint, failed: true);
+          final log = await ProxyService.log();
+          final first = log.split('\n').lastWhere((l) => l.trim().isNotEmpty, orElse: () => '');
+          _say([
+            next.hint.isEmpty ? '没起来' : next.hint,
+            if (first.isNotEmpty) '内核：${first.length > 160 ? first.substring(first.length - 160) : first}',
+          ].join('\n'), failed: true);
           return;
         }
         _say('已开启');
@@ -136,7 +146,8 @@ class _ProxyPageState extends State<ProxyPage> {
                   title: '启用',
                   subtitle: state.kernel ? '内核已随安装包一起装上' : '这个安装包里没有内核',
                   value: state.running,
-                  onChanged: _busy || !state.kernel || !state.configured ? null : _toggle,
+                  // Always tappable: a disabled switch looks like the tap was ignored.
+                  onChanged: !state.kernel ? null : _toggle,
                 ),
               ],
             ),

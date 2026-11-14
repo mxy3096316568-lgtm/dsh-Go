@@ -189,6 +189,14 @@ class BrowserSession {
 })()
 ''';
 
+  /// 标签标题: an error page has no title of its own worth showing.
+  void markLoadFailed() {
+    final tab = currentTab;
+    if (tab == null) return;
+    tab.title = '加载失败';
+    _bumpTabs();
+  }
+
   Future<String> loadErrorMark() async {
     try {
       return _stringOf(await run(_errorProbe));
@@ -364,7 +372,11 @@ class BrowserSession {
   el.files = transfer.files;
   el.dispatchEvent(new Event("input", { bubbles: true }));
   el.dispatchEvent(new Event("change", { bubbles: true }));
-  return el.files.length;
+  // A page may move/replace its input in the change handler; report what stands now,
+  // after giving that handler a tick to run.
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const picked = el.files && el.files[0];
+  return { count: el.files ? el.files.length : 0, name: picked ? picked.name : "" };
 })()
 ''';
     final result = await BrowserApi.runJs(this, script, 60000);
@@ -374,8 +386,9 @@ class BrowserSession {
     if (value == 'not_file') {
       return {'error': 'unsupported', 'message': '这个编号不是文件选择框（<input type=file>）'};
     }
-    if (value is num && value >= 1) {
-      return {'ok': true, 'path': path, 'name': name, 'bytes': bytes.length, 'files': value};
+    final count = value is num ? value.toInt() : (value is Map ? (value['count'] as num?)?.toInt() ?? 0 : 0);
+    if (count >= 1) {
+      return {'ok': true, 'path': path, 'name': name, 'bytes': bytes.length, 'files': count};
     }
     return {'error': 'unsupported', 'message': '页面没有接受这个文件（input.files 还是空的）'};
   }
@@ -544,6 +557,7 @@ class BrowserApi {
           final finalUrl = await session.open(target);
           final mark = await session.loadErrorMark();
           if (mark.isNotEmpty) {
+            session.markLoadFailed();
             return {
               'error': 'load_error',
               'message': '页面没打开：$target（$mark）。网址或网络有问题，读不到这个页面。',

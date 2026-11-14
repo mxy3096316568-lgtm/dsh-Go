@@ -124,7 +124,7 @@ class ProxyService {
     // conflicting keys are dropped rather than left for the kernel to reject.
     final cleaned = yaml.replaceAll(
       RegExp(
-        r'^(mixed-port|port|socks-port|redir-port|tproxy-port|allow-lan|bind-address|external-controller|secret|external-ui):.*$',
+        r'^(mixed-port|port|socks-port|redir-port|tproxy-port|allow-lan|bind-address|external-controller|secret|external-ui|mode|log-level):.*$',
         multiLine: true,
       ),
       '',

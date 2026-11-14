@@ -89,6 +89,10 @@ class ProxyPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             return status(context) + mapOf("error" to "no_config")
         }
         port = requestedPort.coerceIn(1024, 65535)
+        if (portAccepts(port)) {
+            lastError = "端口 $port 已被其他应用占用"
+            return status(context) + mapOf("error" to "port_in_use", "port" to port)
+        }
         return try {
             val log = logFile(context)
             val started = MihomoProcess.start(binary, dataDir(context), config, log)
@@ -141,6 +145,16 @@ class ProxyPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             webViewProxy = false
             lastError = "WebView 不支持代理设置：${error.message ?: error}"
         }
+    }
+
+    /** Something already answers here: another proxy app, or a leftover kernel. */
+    private fun portAccepts(port: Int): Boolean = try {
+        Socket().use { socket ->
+            socket.connect(InetSocketAddress("127.0.0.1", port), 250)
+            true
+        }
+    } catch (_: Exception) {
+        false
     }
 
     private fun waitForPort(port: Int, timeoutMs: Int): Boolean {
