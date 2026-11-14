@@ -49,6 +49,7 @@ import '../../state/safe_mode_state.dart';
 import '../../state/session_modes.dart';
 import '../../state/sessions_state.dart';
 import '../../state/settings_state.dart';
+import '../browser/browser_page.dart';
 import '../../state/usage_state.dart';
 import '../../state/voice_state.dart';
 import '../../state/voice_model_state.dart';
@@ -2216,7 +2217,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                                     onContentInserted: connected ? _pasteContent : null,
                                     onStop: _stop,
                                     hasAttachments: _drafts.isNotEmpty,
-                                    leading: AttachButton(onPressed: connected ? _attach : null),
+                                    leading: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        AttachButton(onPressed: connected ? _attach : null),
+                                        const BrowserButton(),
+                                      ],
+                                    ),
                                     keyboardInset: MediaQuery.viewInsetsOf(context).bottom,
                                     footer: _composerOpens(context) && !isChild
                                         ? ComposerModelPill(
