@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import 'browser_session.dart';
+import 'site_store.dart';
 
 /// 内置浏览器: a WebView of the app's own — its cookies are separate from the
 /// phone's browser, so signing in here is signing in only for this app.
@@ -30,6 +31,7 @@ class _BrowserPageState extends State<BrowserPage> {
   final _address = TextEditingController();
   String _url = '';
   bool _loading = false;
+  List<BrowserSite> _sites = const [];
 
   @override
   void initState() {
@@ -48,8 +50,11 @@ class _BrowserPageState extends State<BrowserPage> {
               _address.text = url;
             });
           },
-          onPageFinished: (url) {
+          onPageFinished: (url) async {
             BrowserSession.instance.url.value = url;
+            final title = await _controller.getTitle() ?? '';
+            final sites = await SiteStore.record(url: url, title: title);
+            if (mounted) setState(() => _sites = sites);
             if (!mounted) return;
             setState(() {
               _url = url;
@@ -60,6 +65,9 @@ class _BrowserPageState extends State<BrowserPage> {
         ),
       );
     BrowserSession.instance.attach(_controller);
+    SiteStore.load().then((sites) {
+      if (mounted) setState(() => _sites = sites);
+    });
     final initial = widget.initialUrl;
     if (initial != null && initial.isNotEmpty) {
       _open(initial);
@@ -134,6 +142,18 @@ class _BrowserPageState extends State<BrowserPage> {
                   ? ListView(
                       padding: const EdgeInsets.all(16),
                       children: [
+                        if (_sites.isNotEmpty) ...[
+                          Text('最近访问', style: Theme.of(context).textTheme.titleMedium),
+                          const SizedBox(height: 8),
+                          for (final site in _sites.take(8))
+                            ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(site.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                              subtitle: Text(site.host),
+                              onTap: () => _open(site.url),
+                            ),
+                          const SizedBox(height: 16),
+                        ],
                         Text('常去', style: Theme.of(context).textTheme.titleMedium),
                         const SizedBox(height: 8),
                         for (final site in _sites)
