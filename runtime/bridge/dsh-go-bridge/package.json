@@ -18,6 +18,8 @@
     "lib/speech.js",
     "lib/config-source.js",
     "lib/client.js",
+    "lib/browser-tools.js",
+    "lib/webdav-tools.js",
     "lib/companion/*.js",
     "lib/native/*.js",
     "cordis.patch.yml",
