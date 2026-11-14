@@ -27,6 +27,7 @@ import '../../state/agents_state.dart' show subagentParentProvider;
 import '../../state/attachments.dart';
 import '../../state/balance_state.dart';
 import '../../state/chat_error_text.dart';
+import '../../state/clipboard_watch.dart';
 import '../../state/chat_state.dart';
 import '../../state/commands_state.dart';
 import '../../state/compose_inbox.dart';
@@ -106,6 +107,7 @@ import 'trajectory_sheet.dart';
 import 'usage_sheet.dart';
 import 'voice/voice_controller.dart';
 import 'widgets/activity_strip.dart';
+import 'widgets/clipboard_chip.dart';
 import 'widgets/attachments.dart';
 import 'widgets/notice_row.dart';
 import 'widgets/permission_pill.dart';
@@ -171,7 +173,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) _scheduleInteraction();
+    if (state == AppLifecycleState.resumed) {
+      _scheduleInteraction();
+      // 剪贴板动作: 回到 App 时看一眼前台剪贴板(后台读不到, 也不轮询)。
+      unawaited(ClipboardWatch.check());
+    }
   }
 
   @override
@@ -183,6 +189,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
   }
 
   final _input = MentionTextController();
+
+  /// 剪贴板小条里点「粘贴」: 接在现有草稿后面, 光标放到末尾。
+  void _pasteIntoComposer(String text) {
+    final existing = _input.text;
+    _input.text = existing.trim().isEmpty ? text : '$existing\n$text';
+    _input.selection = TextSelection.collapsed(offset: _input.text.length);
+    _focus.requestFocus();
+  }
 
   /// The composer as plugin controls and ui.json capsules see it.
   late final _nativeHost = _ChatComposerHost(this);
@@ -2172,6 +2186,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                                       ),
                                     ),
                                   ),
+                                if (!readOnly) ClipboardChip(onPaste: _pasteIntoComposer),
                                 if (readOnly)
                                   const ReadOnlyBar()
                                 else

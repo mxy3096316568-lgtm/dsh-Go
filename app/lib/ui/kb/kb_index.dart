@@ -412,6 +412,36 @@ class KbIndex {
     }
   }
 
+  /// 把一段随手记的文字写成 `笔记/<标题>.md` 并刷新索引。
+  ///
+  /// 剪贴板、「存成笔记」这类零散内容走这里：不编 URL、不进 web.json，
+  /// 就是一个普通文档，用户能在知识库页面看到、也能直接编辑源文件。
+  Future<bool> putNote({required String title, required String text}) async {
+    try {
+      final body = text.trim();
+      if (body.isEmpty) return false;
+      final stem = _safeSegment(title.trim().isEmpty ? '笔记' : title.trim());
+      final dir = Directory('$rootDir/笔记');
+      await dir.create(recursive: true);
+      final taken = <String>{
+        for (final doc in _docs)
+          if (doc.path.startsWith('笔记/')) doc.path,
+      };
+      var name = '${stem.isEmpty ? '笔记' : stem}.md';
+      var n = 1;
+      while (taken.contains('笔记/$name') || File('${dir.path}/$name').existsSync()) {
+        name = '${stem.isEmpty ? '笔记' : stem} ($n).md';
+        n += 1;
+        if (n > 500) break;
+      }
+      await File('${dir.path}/$name').writeAsString(body, flush: true);
+      await refresh();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// 抓取过的网页数（web.json 里的 URL 数）。界面用来区分“自己的文件”和“抓来的”。
   Future<int> webDocCount() async {
     await _ensureWebLoaded();
