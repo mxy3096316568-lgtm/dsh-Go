@@ -248,9 +248,17 @@ class RuntimeController private constructor(private val app: Context) : DshProce
             try {
                 log("[dsh-app] unpacking runtime ${manifest.runtimeVersion} (${manifest.abi})", "system")
                 val started = System.currentTimeMillis()
-                if (installer.rootfs.exists() &&
-                    !DshProcess(app, manifest, installer.rootfs, this).killStrays()) {
-                    throw RuntimeUpgradeBlocked("running")
+                // Only our own processes block an upgrade. A /proc entry the app cannot
+                // inspect belongs to someone else, and treating that as "the engine may
+                // still be running" blocked every later update on devices with such a
+                // process (the startup path already accepts this gap).
+                if (installer.rootfs.exists()) {
+                    val cleanup = DshProcess(app, manifest, installer.rootfs, this)
+                        .reapStrays(allowObservationGap = true)
+                    if (cleanup.ownedRemaining) throw RuntimeUpgradeBlocked("running")
+                    if (!cleanup.complete) {
+                        log("[dsh-app] unpacking with incomplete process observation; no captured runtime identities remain", "system")
+                    }
                 }
                 if (dropKept) log("[dsh-app] installing without what could not be kept", "system")
                 installer.install(dropKept) { done, total ->
