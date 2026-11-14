@@ -311,18 +311,6 @@
                 android:resource="@xml/companion_widget_info" />
         </receiver>
 
-        <!-- 桌面小组件「问一句 / 继续上次对话」。只放两个入口，点一下才启动 App。 -->
-        <receiver
-            android:name=".widget.AskWidgetProvider"
-            android:exported="false"
-            android:label="DSH Go">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/widget_ask_info" />
-        </receiver>
         <receiver android:name=".notify.NotifyActionReceiver" android:exported="false" />
         <receiver android:name=".phone.a11y.A11yKeeper$Receiver" android:exported="false">
             <intent-filter>
