@@ -410,7 +410,7 @@ export function createNativeRoutes(core) {
     entry.timer.unref?.();
     let responded;
     const gate = new Promise((resolve) => { responded = resolve; });
-    const hostEntry = { pkg, uid: rec?.uid, stamp: rec?.stamp, conn, scope, surface: source ?? "panel", id };
+    const hostEntry = { pkg, uid: rec?.uid, stamp: rec?.stamp, conn, scope, surface: source ?? "panel", id, pending: entry.id };
     const work = typeof deferred.work === "function"
       ? host.run(hostEntry, () => call(deferred.work, controller.signal))
       : Promise.resolve(deferred.work);
@@ -437,6 +437,19 @@ export function createNativeRoutes(core) {
     sendJson(res, 200, { v: PROTOCOL, effects: [], pending, issues: deferred.issues });
     responded();
   }
+
+  /**
+   * v1.4: a plugin's deferred work may relabel its pending result (`ctx.dshGo.progress`).
+   * Only the connection and plugin that own it, only while it is unsettled, bounded.
+   */
+  core.pendingLabel = (conn, id, label, pkg) => {
+    const entry = pendings.get(id);
+    if (entry === undefined || entry.conn !== conn || entry.pkg !== pkg || entry.settled) return false;
+    entry.updates = (entry.updates ?? 0) + 1;
+    if (entry.updates > L.pendingLabelUpdates) return false;
+    conn.send({ t: "pending.label", pending: id, label });
+    return true;
+  };
 
   /** Each pending id settles exactly once; only its own connection hears about it. */
   function settle(entry, msg, abort = true) {

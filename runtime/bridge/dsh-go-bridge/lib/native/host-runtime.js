@@ -261,6 +261,20 @@ export class HostRuntime {
     }
   }
 
+  /** v1.4: relabel this pending result while deferred work runs. */
+  progress(pkg, label) {
+    const entry = this.delivery.getStore();
+    if (entry === undefined || entry.pkg !== pkg || typeof entry.pending !== "string") {
+      throw new HostError("unavailable", "progress() is only available inside a pending result");
+    }
+    const text = typeof label === "string" ? label.replace(/[\r\n]+/g, " ").trim().slice(0, 16) : "";
+    if (text === "") throw new HostError("bad-request", "progress(label) needs a short label");
+    if (!this.core.pendingLabel?.(entry.conn, entry.pending, text, pkg)) {
+      throw new HostError("unavailable", "this pending result has already settled");
+    }
+    return true;
+  }
+
   // ── phone / tools: run one engine tool, after the app allowed it ──────────
 
   async runTool(payload, timeoutMs) {

@@ -115,6 +115,15 @@ class NativeWorkController extends Notifier<Map<String, NativeWork>> {
 
   void start(String key, [NativeWork work = const NativeWork()]) => state = {...state, key: work};
 
+  /// v1.4: a pending result's label changed. Only its own owner may update it.
+  void relabel(String key, String? label, {Object? owner}) {
+    final current = state[key];
+    if (current == null) return;
+    if (owner != null && !identical(current.owner, owner)) return;
+    if (current.label == label) return;
+    state = {...state, key: NativeWork(label: label, cancel: current.cancel, owner: current.owner)};
+  }
+
   void finish(String key, {Object? owner}) {
     if (!ref.mounted || !state.containsKey(key)) return;
     if (owner != null && !identical(state[key]?.owner, owner)) return;
@@ -559,6 +568,10 @@ Future<bool> _invoke(
   }
 
   work.start(control, NativeWork(label: pending.label, cancel: cancel, owner: owner));
+  // v1.4: the plugin may relabel this pending result while its work runs.
+  final labels = stream.pendingLabels
+      .where((update) => update.pending == pending.id)
+      .listen((update) => work.relabel(control, update.label, owner: owner));
   // No control on screen to show it (a menu item, the strip): a note does.
   final note = !authorisedResponse || surface == NativeSurface.composerActions || !context.mounted
       ? null
@@ -571,6 +584,7 @@ Future<bool> _invoke(
           ),
         );
   final outcome = await stream.outcome(pending.id, timeout: pending.timeout + const Duration(seconds: 5));
+  await labels.cancel();
   if (context.mounted) note?.close();
   work.finish(control, owner: owner);
   if (!guard.current) return false;

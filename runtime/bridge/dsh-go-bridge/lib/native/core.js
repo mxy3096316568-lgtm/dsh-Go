@@ -452,6 +452,13 @@ export class NativeCore {
         if (!loc || !core.pickedFileRead) throw new Error("no active file selection callback");
         return core.pickedFileRead(loc.pkg, handle);
       },
+      // v1.4: relabel the pending result this deferred work belongs to.
+      progress(label) {
+        const loc = core.locate(entryOf(this?.ctx?.fiber));
+        if (!loc) throw new Error("dshGo.progress: call it from a plugin context");
+        if (!core.host) throw new Error("dshGo.progress: no app is connected");
+        return core.host.progress(loc.pkg, label);
+      },
       // v1.4: data from the app, or an action only it can take. Async; refuses with an
       // Error whose `code` is unsupported / denied / timeout / limit / bad-request.
       capability(name, args) {

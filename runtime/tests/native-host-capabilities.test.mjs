@@ -367,6 +367,7 @@ test('a deferred result can use capabilities too (rec reaches startPending)', as
     pending: { label: 'working' },
     result: async () => {
       try {
+        f.service.progress('第 2 步');
         const value = await f.service.capability('selection');
         return { copy: JSON.stringify({ ok: true, value }) };
       } catch (error) {
@@ -378,6 +379,9 @@ test('a deferred result can use capabilities too (rec reaches startPending)', as
   const w = await f.ws(['selection']);
   const invoked = await f.invoke(w);
   assert.ok(invoked.pending, JSON.stringify(invoked));
+  const label = await w.next((m) => m.t === 'pending.label');
+  assert.equal(label.pending, invoked.pending.id);
+  assert.equal(label.label, '第 2 步');
   const done = await w.next((m) => m.t === 'done');
   const copied = done.effects.find((e) => e.type === 'copy');
   assert.ok(copied, JSON.stringify(done));

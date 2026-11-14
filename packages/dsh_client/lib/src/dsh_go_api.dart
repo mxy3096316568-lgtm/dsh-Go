@@ -1033,6 +1033,18 @@ const dshGoFeatures = {
   'sessionText', 'selection', 'send', 'notify', 'phone', 'tools', 'schedule', 'pluginFiles',
 };
 
+/// v1.4: a deferred result's progress label (`pending.label`). The plugin relabels
+/// the pending tap while its work runs; the app redraws the control with it.
+class DshGoPendingLabel {
+  const DshGoPendingLabel(this.pending, this.label);
+
+  /// The pending id from the invoke answer.
+  final String pending;
+
+  /// Why the work is still going, at most 16 characters.
+  final String label;
+}
+
 /// One `host.req` from the bridge: a plugin is using a host capability (§13).
 /// The app answers with [DshGoStream.answerHost].
 class DshGoHostRequest {
@@ -1278,6 +1290,7 @@ class DshGoStream {
   final _changes = StreamController<DshGoChanged>.broadcast();
   final _links = StreamController<DshGoLink>.broadcast();
   final _hostRequests = StreamController<DshGoHostRequest>.broadcast();
+  final _pendingLabels = StreamController<DshGoPendingLabel>.broadcast();
   DshGoSocket? _socket;
   StreamSubscription<Object?>? _socketSub;
   Timer? _graceTimer;
@@ -1314,6 +1327,9 @@ class DshGoStream {
 
   /// Contributions changed on the Host (`changed`).
   Stream<DshGoChanged> get changes => _changes.stream;
+
+  /// v1.4: a pending result's label changed (`pending.label`).
+  Stream<DshGoPendingLabel> get pendingLabels => _pendingLabels.stream;
 
   /// v1.4: a plugin is asking the app for a host capability (§13). Answer each
   /// one with [answerHost]; the bridge refuses the plugin's call after its own
@@ -1653,6 +1669,7 @@ class DshGoStream {
     await _changes.close();
     await _links.close();
     await _hostRequests.close();
+    await _pendingLabels.close();
   }
 
   void _setLink(DshGoLink link) {
@@ -1822,6 +1839,15 @@ class DshGoStream {
         return;
       case 'micro.data' || 'micro.end':
         _onMicro(map, utf8.encode(raw).length);
+        return;
+      case 'pending.label':
+        final pending = asString(map['pending']);
+        final label = asString(map['label']);
+        if (pending != null && pending.isNotEmpty && pending.length <= 64 &&
+            label != null && label.isNotEmpty && label.runes.length <= 16 &&
+            !_pendingLabels.isClosed) {
+          _pendingLabels.add(DshGoPendingLabel(pending, label));
+        }
         return;
       case 'host.req':
         _onHostRequest(map, utf8.encode(raw).length);

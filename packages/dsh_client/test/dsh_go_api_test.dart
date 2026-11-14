@@ -233,6 +233,29 @@ void main() {
       client = await DshClient.connect(baseUri: host.baseUri, token: _FakeHost.token, startMux: false);
     });
 
+    test('pending label updates reach the stream; malformed ones are dropped', () async {
+      final stream = client.openDshGoStream();
+      addTearDown(stream.close);
+      final labels = <DshGoPendingLabel>[];
+      final sub = stream.pendingLabels.listen(labels.add);
+      addTearDown(sub.cancel);
+      final held = stream.hold();
+      expect(await host.socketMessages.next, {
+        't': 'hello',
+        'v': [1],
+      });
+      host.push({'t': 'welcome', 'v': 1, 'bridge': '0.5.0', 'hb': 25, 'conn': 'c1'});
+      expect(await held, 'c1');
+      host.push({'t': 'pending.label', 'pending': 'p1', 'label': '第 2 步'});
+      host.push({'t': 'pending.label', 'pending': 'p2', 'label': ''});
+      host.push({'t': 'pending.label', 'pending': 'p3', 'label': 'x' * 17});
+      host.push({'t': 'pending.label', 'pending': '', 'label': 'ok'});
+      host.push({'t': 'pending.label', 'pending': 'p4', 'label': 'done'});
+      await _settle(() => labels.length == 2);
+      expect(labels.map((e) => (e.pending, e.label)), [('p1', '第 2 步'), ('p4', 'done')]);
+    });
+
+
     tearDown(() async {
       await client.close();
       await host.close();

@@ -242,6 +242,7 @@ await ctx.dshGo.capability('pluginFiles', { op: 'write', path: 'state.json', tex
 ```
 
 - **慢的就用延后结果**：普通 handler 只有 3 秒预算，`phone` / `tools` 要等用户确认，放进 `pending` 里做。
+  延后工作里可以用 `ctx.dshGo.progress('第 3 步（共 8 步）')` 更新 pending 标签（≤ 16 字），点按的元素会重绘。
 - **App 会问你的人**：第一次用按插件记（授权记录里可撤销）；`phone` / `tools` **每次都问**，没有「总是允许」。
   能力控制 → 插件权限关掉时全部拒绝。
 - **错误码**：`unsupported`（没声明/没协商/没流）、`denied`、`timeout`、`limit`（一条流同时最多 4 个）、

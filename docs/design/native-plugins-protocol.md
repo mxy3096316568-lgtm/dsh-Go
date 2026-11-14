@@ -468,6 +468,7 @@ handler 在 3 秒内返回 `{ pending, result }`（§2.2），桥接立即回：
 |---|---|
 | 允许的效果 | `insert`、`copy`、`toast`、`patch`。`command` / `open` / `link` / `refresh` 不允许（仍必须在 3 秒窗口内直接返回）；混进来的被丢弃并记 `bad-effect`，算违规 |
 | `label` | 可选，≤ 16 字，超长截断。App 在点按的元素上显示「进行中」+ label |
+| `pending.label`（v1.4） | 延后工作运行时可以用 `ctx.dshGo.progress('第 3 步')` 改这条 pending 的 label。桥接 → App：`{t:"pending.label", pending, label}`，只推给拥有它的连接与插件，label ≤ 16 字，每条 pending 最多 40 次；App 不支持时忽略（标签保持初始值） |
 | `timeoutMs` | 缺省 30000；取值夹在 1000–60000 之间。到点 → `void timeout`，`signal` 触发 |
 | 投递对象 | 只推给 `stream` 指定的连接；其他连接（包括同一台主机上的别的 App 实例）收不到 |
 | 只兑现一次 | 每个 `pending.id` 只会有一条 `done` 或 `void`；过期、取消、断线之后才到的结果直接丢弃 |
@@ -771,6 +772,7 @@ await ctx.dshGo.capability('pluginFiles', { op: 'write', path: 'state.json', tex
 
 - 只能在**点按回调里**调用（`on(id)` / panel action）；在数据函数、注册钩子、模块顶层调用会抛 `unavailable`。原因：桥接需要知道哪条流、哪个插件、哪个会话。
 - 慢能力（`phone`、`tools`）请放在**延后结果**（§4.7）里做：普通 invoke 的 handler 只有 3 秒预算，等用户确认往往不够。
+  延后工作里可以用 `ctx.dshGo.progress('第 3 步（共 8 步）')` 更新 pending 标签（≤ 16 字），App 会重绘点按的元素。
 - 成功返回 App 的值（`sessionText` / `selection` → `{ text }`，`schedule` → `{ task }`）；没有值的动作为 `true`。
 - 失败抛 `Error`，`error.code`：`unsupported`（没声明/没协商/没流）、`denied`（用户或开关拒绝）、`timeout`（App 没回）、`limit`（这条流上同时最多 4 个请求）、`too-large`、`bad-request`、`unavailable`、`not-found`、`failed`。
 

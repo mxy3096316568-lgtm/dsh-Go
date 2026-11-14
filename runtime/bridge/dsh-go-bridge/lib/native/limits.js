@@ -45,6 +45,7 @@ export const LIMITS = Object.freeze({
   pendingMinMs: 1000,
   pendingMaxMs: 60000,
   pendingLabelChars: 16,
+  pendingLabelUpdates: 40,
   pendingEarlyResultMs: 5000,
   turnNotesPerFeed: 64,
 });

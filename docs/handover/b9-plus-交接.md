@@ -107,3 +107,10 @@ await ctx.dshGo.capability('tools', { tool: 'web_search', args: { queries: ['x']
 
 B2/B3/B4/B5/B6/B8/B9 在上一轮（`c208529`）已改，见上表；这一轮的包同时包含两者。
 B10（pending 只有静态标签、没有进度）**未做**：需要新的协议消息（运行时更新 label），这轮不加，避免再开一个未验证的口子。
+
+## 第四轮（B10）：pending 进度
+
+- 协议 §4.7 增加 `pending.label`：桥接 → App `{t:"pending.label", pending, label}`，只推给拥有它的连接与插件，label ≤ 16 字，每条 pending 最多 40 次
+- 插件 API：`ctx.dshGo.progress('第 3 步（共 8 步）')`，只能在 `pending` 的延后工作里调，不需要新能力声明
+- App：流里多一个分支，`NativeWorkController.relabel` 重绘点按元素上的标签；旧 App 忽略该消息，标签保持初始值
+- 测试：桥接延后用例断言 `pending.label` 帧；`dsh_client` 新增「标签更新 + 非法标签丢弃」用例；kit 115、桥接 native 98、client 32 全过
