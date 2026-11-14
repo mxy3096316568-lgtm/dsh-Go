@@ -187,6 +187,7 @@ flutter:
     - assets/skills/dsh-go-browser/
     - assets/skills/dsh-go-cloud/
     - assets/skills/dsh-go-notify/
+    - assets/skills/dsh-go-kb/
 
 
   # To add assets to your application, add an assets section, like this:

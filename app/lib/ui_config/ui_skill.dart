@@ -58,6 +58,9 @@ const cloudSkillName = 'dsh-go-cloud';
 /// 通知中枢的说明书：读最近通知、按应用汇总。
 const notifySkillName = 'dsh-go-notify';
 
+/// 知识库的说明书：先在用户自己的文档里检索，再引用出处。
+const kbSkillName = 'dsh-go-kb';
+
 /// The managed line inside SKILL.md's front matter.
 const uiSkillManagedMarker = '# dsh-go:managed';
 
@@ -175,6 +178,7 @@ final extraSkillLoadersProvider = Provider<List<UiSkillBundleLoader>>(
     () => loadUiSkillBundle(null, browserSkillName),
     () => loadUiSkillBundle(null, cloudSkillName),
     () => loadUiSkillBundle(null, notifySkillName),
+    () => loadUiSkillBundle(null, kbSkillName),
   ],
 );
 

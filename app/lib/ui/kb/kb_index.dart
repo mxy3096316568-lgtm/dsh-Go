@@ -138,6 +138,9 @@ class KbStats {
   final int skippedFiles;
 }
 
+/// [KbIndex.putWebDoc] 的结果：新页面 / 内容变了 / 没变 / 写不进去。
+enum KbPutResult { added, updated, unchanged, failed }
+
 /// 知识库索引：扫描 [rootDir]，把支持的文档抽成文本并切成重叠块，写入
 /// [indexDir]/index.json，再提供增量刷新、检索和增删入口。
 ///
@@ -154,6 +157,11 @@ class KbIndex {
   static const String indexDir = '/sdcard/Download/DSH-Go/知识库/.index';
 
   static const String _indexPath = '$indexDir/index.json';
+
+  /// 网页抓来的文档放在这个子目录里，一眼能和用户自己的资料分开。
+  static const String webDirName = '网页';
+
+  static const String _webMapPath = '$indexDir/web.json';
 
   /// 能真正抽出文本的扩展名（小写，不含点）。
   static const Set<String> supportedExtensions = <String>{
@@ -237,6 +245,12 @@ class KbIndex {
   int _builtAtMs = 0;
   int _skippedFiles = 0;
   bool _loaded = false;
+
+  /// 网页抓进来的文档记在 `.index/web.json`：url → 文件名、url → 正文哈希。
+  /// 只放在索引这一侧，源目录里仍然是普通的 .md，用户看得懂、删得掉。
+  Map<String, String> _webFiles = <String, String>{};
+  Map<String, String> _webHashes = <String, String>{};
+  bool _webLoaded = false;
 
   /// 全量重建：忽略旧索引，逐个文件重新解析。
   ///
@@ -357,6 +371,53 @@ class KbIndex {
     }
   }
 
+  /// 把一页网页正文写成知识库文档，按 URL 增量：正文没变就不动文件。
+  ///
+  /// 返回 added（新页面）/ updated（内容变了）/ unchanged（和上次一样）/ failed。
+  /// 这里只写文件，不重建索引：抓一整站时由调用方最后统一 refresh 一次，
+  /// 否则每次写盘都要重扫一遍整个目录。
+  Future<KbPutResult> putWebDoc({
+    required String url,
+    required String text,
+    String? title,
+    DateTime? fetchedAt,
+  }) async {
+    try {
+      final normalized = _normalizeUrl(url);
+      if (normalized == null) return KbPutResult.failed;
+      final body = text.trim();
+      if (body.isEmpty) return KbPutResult.failed;
+      await _ensureWebLoaded();
+      final hash = sha1.convert(utf8.encode(body)).toString();
+      var rel = _webFiles[normalized];
+      if (rel != null && !File('$rootDir/$rel').existsSync()) {
+        // 用户删过这个文件：下次抓取当作新页面，别把已删的东西又写回去。
+        rel = null;
+        _webFiles.remove(normalized);
+        _webHashes.remove(normalized);
+      }
+      if (rel != null && _webHashes[normalized] == hash) return KbPutResult.unchanged;
+      final existed = rel != null;
+      rel ??= _newWebPath(normalized, title);
+      final file = File('$rootDir/$rel');
+      await file.parent.create(recursive: true);
+      final at = fetchedAt ?? DateTime.now();
+      await file.writeAsString(_webDocText(normalized, title, body, at), flush: true);
+      _webFiles[normalized] = rel;
+      _webHashes[normalized] = hash;
+      await _saveWebMap();
+      return existed ? KbPutResult.updated : KbPutResult.added;
+    } catch (_) {
+      return KbPutResult.failed;
+    }
+  }
+
+  /// 抓取过的网页数（web.json 里的 URL 数）。界面用来区分“自己的文件”和“抓来的”。
+  Future<int> webDocCount() async {
+    await _ensureWebLoaded();
+    return _webFiles.length;
+  }
+
   /// 删除 [docPath] 对应的源文件并更新索引；路径非法或删除失败返回 false。
   Future<bool> deleteDoc(String docPath) async {
     try {
@@ -370,6 +431,15 @@ class KbIndex {
         for (final doc in _docs)
           if (doc.path != rel) doc,
       ];
+      await _ensureWebLoaded();
+      var dropped = false;
+      for (final entry in _webFiles.entries.toList()) {
+        if (entry.value != rel) continue;
+        _webFiles.remove(entry.key);
+        _webHashes.remove(entry.key);
+        dropped = true;
+      }
+      if (dropped) await _saveWebMap();
       await _build(force: false);
       return true;
     } catch (_) {
@@ -747,6 +817,99 @@ class KbIndex {
   bool _isHighSurrogate(int unit) => unit >= 0xD800 && unit <= 0xDBFF;
 
   bool _isLowSurrogate(int unit) => unit >= 0xDC00 && unit <= 0xDFFF;
+
+  // ── 网页入库 ────────────────────────────────────────────────────────────
+
+  String? _normalizeUrl(String url) {
+    var raw = url.trim();
+    if (raw.isEmpty) return null;
+    if (!raw.contains('://')) raw = 'https://$raw';
+    final uri = Uri.tryParse(raw);
+    if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https') || uri.host.isEmpty) return null;
+    return uri.removeFragment().toString();
+  }
+
+  /// `网页/example.com/标题.md`，重名就加 (1)；同名 URL 由调用方复用旧路径。
+  String _newWebPath(String url, String? title) {
+    final uri = Uri.parse(url);
+    final host = _safeSegment(uri.host.isEmpty ? 'unknown' : uri.host);
+    final rawName = (title ?? '').trim().isNotEmpty
+        ? title!.trim()
+        : (uri.pathSegments.isEmpty ? 'index' : uri.pathSegments.last);
+    var stem = _safeSegment(rawName);
+    stem = stem.replaceFirst(RegExp(r'\.(html?|php|aspx?|jsp|shtml)$', caseSensitive: false), '');
+    if (stem.isEmpty) stem = 'page';
+    if (stem.length > 60) stem = stem.substring(0, 60);
+    final taken = _webFiles.values.toSet();
+    var candidate = '$webDirName/$host/$stem.md';
+    var n = 1;
+    while (taken.contains(candidate) || File('$rootDir/$candidate').existsSync()) {
+      candidate = '$webDirName/$host/$stem ($n).md';
+      n += 1;
+      if (n > 200) {
+        candidate = '$webDirName/$host/$stem-${DateTime.now().millisecondsSinceEpoch}.md';
+        break;
+      }
+    }
+    return candidate;
+  }
+
+  /// 文件名里不能出现的字符换成空格：Android 上 `:`、`?` 会让写入直接失败。
+  String _safeSegment(String raw) {
+    final cleaned = raw.replaceAll(RegExp(r'[\\/:*?"<>|\r\n\t]'), ' ').replaceAll(_whitespace, ' ').trim();
+    return cleaned.replaceFirst(RegExp(r'^\.+'), '').trim();
+  }
+
+  /// 文件头带来源 URL 和抓取时间，用户打开文件就知道这段文字是哪来的。
+  String _webDocText(String url, String? title, String body, DateTime at) {
+    final heading = (title ?? '').replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
+    final head = '---\nurl: $url\ntitle: $heading\nfetched: ${at.toIso8601String()}\n---\n\n';
+    return '$head${heading.isEmpty ? '' : '# $heading\n\n'}$body\n';
+  }
+
+  Future<void> _ensureWebLoaded() async {
+    if (_webLoaded) return;
+    _webLoaded = true;
+    try {
+      final file = File(_webMapPath);
+      if (!await file.exists()) return;
+      final decoded = jsonDecode(await file.readAsString());
+      if (decoded is! Map) return;
+      final files = decoded['files'];
+      final hashes = decoded['hashes'];
+      if (files is Map) {
+        _webFiles = <String, String>{for (final entry in files.entries) '${entry.key}': '${entry.value}'};
+      }
+      if (hashes is Map) {
+        _webHashes = <String, String>{for (final entry in hashes.entries) '${entry.key}': '${entry.value}'};
+      }
+    } catch (_) {
+      // 坏 JSON 只丢增量线索：下次抓取会把页面重写一遍，内容不会丢。
+      _webFiles = <String, String>{};
+      _webHashes = <String, String>{};
+    }
+  }
+
+  Future<void> _saveWebMap() async {
+    final tmpPath = '$_webMapPath.tmp';
+    try {
+      await Directory(indexDir).create(recursive: true);
+      final tmp = File(tmpPath);
+      await tmp.writeAsString(
+        jsonEncode(<String, Object?>{'version': 1, 'files': _webFiles, 'hashes': _webHashes}),
+        flush: true,
+      );
+      try {
+        await tmp.rename(_webMapPath);
+      } catch (_) {
+        final target = File(_webMapPath);
+        if (await target.exists()) await target.delete();
+        await tmp.rename(_webMapPath);
+      }
+    } catch (_) {
+      // 写不了 web.json 只是下次重复抓同一页，比丢正文轻。
+    }
+  }
 
   String? _relFromRoot(String path) {
     final normalized = _normalizePath(path);

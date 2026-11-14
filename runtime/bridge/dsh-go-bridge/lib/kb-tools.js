@@ -91,6 +91,30 @@ function definitions() {
       description: "看知识库现状：多少文档、多少块、占多少空间、超时跳过了多少文件。",
       execute: () => call("/kb/stats", {}),
     }),
+    tool({
+      name: "web_crawl",
+      description:
+        "抓网页正文存进知识库，之后用 kb_search 检索（长文章、系列页、要反复查的资料适合这样存）。只抓用户给的这个站：同域、限深限量、遵守 robots.txt、页间有间隔。要登录态或用 JS 渲染的页面把 render 设为 true（会用内置浏览器逐页打开，慢）。抓完自动入库，只更新内容变了的页。不要拿它批量镜像整个网站。",
+      properties: {
+        url: { type: "string", required: true, description: "起始网址" },
+        depth: { type: "integer", description: "往下跟几层链接：0 只抓这一页，默认 1，最大 3" },
+        limit: { type: "integer", description: "最多抓几页，默认 10，上限 30" },
+        same_domain: { type: "boolean", description: "只抓同一个站点，默认 true" },
+        render: { type: "boolean", description: "用内置浏览器渲染（需要登录态或页面靠 JS 出内容），默认 false" },
+      },
+      execute: (args) =>
+        call(
+          "/kb/crawl",
+          {
+            url: args.url,
+            depth: args.depth ?? 1,
+            limit: args.limit ?? 10,
+            same_domain: args.same_domain ?? true,
+            render: args.render ?? false,
+          },
+          240000,
+        ),
+    }),
   ];
 }
 

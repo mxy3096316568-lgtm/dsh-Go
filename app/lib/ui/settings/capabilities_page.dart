@@ -10,6 +10,7 @@ import '../../state/phone_state.dart';
 import '../browser/browser_session.dart';
 import '../phone/phone_control_screen.dart';
 import '../browser/browser_page.dart';
+import '../kb/kb_page.dart';
 import '../keepalive/keepalive_bridge.dart';
 import '../notify/notify_bridge.dart';
 import '../shell/page_frame.dart';
@@ -115,6 +116,12 @@ class CapabilitiesPage extends ConsumerWidget {
               title: '云盘',
               subtitle: 'WebDAV 网盘：地址、账号和密码',
               onTap: () => Navigator.of(context).push(WebdavPage.route()),
+            ),
+            SettingsTile(
+              key: const ValueKey('cap-open-kb'),
+              title: '知识库',
+              subtitle: '自己的资料：文档、块数、删除、重建索引、导入',
+              onTap: () => Navigator.of(context).push(KbPage.route()),
             ),
             SettingsTile(
               key: const ValueKey('cap-phone-control'),

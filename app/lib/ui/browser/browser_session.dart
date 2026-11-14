@@ -9,6 +9,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 
 import '../../state/capability_guard.dart';
+import '../kb/kb_crawl.dart';
 import '../kb/kb_index.dart';
 import '../notify/notify_bridge.dart';
 import '../proxy/proxy_service.dart';
@@ -530,6 +531,8 @@ class BrowserApi {
     '/kb/read': ['files'],
     '/kb/import': ['files'],
     '/kb/reindex': ['files'],
+    '/kb/put': ['files'],
+    '/kb/crawl': ['files'],
     '/notify/status': ['notify'],
     '/notify/list': ['notify'],
     '/notify/search': ['notify'],
@@ -719,6 +722,31 @@ class BrowserApi {
       case '/kb/reindex':
         final rebuilt = await _kb.rebuild();
         return {'ok': true, 'docs': rebuilt.docs, 'chunks': rebuilt.chunks, 'bytes': rebuilt.totalBytes};
+      case '/kb/put':
+        final url = (body['url'] as String?)?.trim() ?? '';
+        final text = (body['text'] as String?) ?? '';
+        if (url.isEmpty || text.trim().isEmpty) return {'error': 'url and text required'};
+        final outcome = await _kb.putWebDoc(url: url, text: text, title: body['title'] as String?);
+        final stats = outcome == KbPutResult.failed ? await _kb.stats() : await _kb.refresh();
+        return {'ok': outcome != KbPutResult.failed, 'outcome': outcome.name, 'docs': stats.docs, 'chunks': stats.chunks};
+      case '/kb/crawl':
+        final start = (body['url'] as String?)?.trim() ?? '';
+        if (start.isEmpty) return {'error': 'url required'};
+        final render = (body['render'] as bool?) ?? false;
+        if (render && !CapabilityGuard.allows('browser')) {
+          CapabilityGuard.noteDenial('browser', path);
+          return {'error': 'denied', 'capability': 'browser', 'message': CapabilityGuard.messageFor('browser')};
+        }
+        final crawl = await CrawlService().crawl(
+          start: start,
+          depth: (body['depth'] as int?) ?? 1,
+          limit: (body['limit'] as int?) ?? 10,
+          sameDomain: (body['same_domain'] as bool?) ?? true,
+          render: render,
+          index: _kb,
+        );
+        final stats = await _kb.refresh();
+        return {'ok': true, ...crawl.toJson(), 'docs': stats.docs, 'chunks': stats.chunks};
       case '/notify/status':
         final status = await NotifyBridge.status();
         return {'ok': true, 'granted': status.granted, 'count': status.count};
