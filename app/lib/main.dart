@@ -38,6 +38,7 @@ Future<void> _startApp() async {
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   SystemChrome.setSystemUIOverlayStyle(dshSystemOverlay(PlatformDispatcher.instance.platformBrightness));
   // 内置浏览器: the loopback API the engine's tools reach.
-  unawaited(BrowserApi.publish().then((_) => BrowserApi.start()));
+  BrowserApi.publishSync();
+  unawaited(BrowserApi.start());
   runApp(const ProviderScope(child: DshApp()));
 }
