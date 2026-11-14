@@ -22,6 +22,19 @@ class BrowserSession {
   final ValueNotifier<bool> visible = ValueNotifier<bool>(false);
   final ValueNotifier<String> lastBlockedScheme = ValueNotifier<String>('');
 
+  /// The document load in flight (completed on the next page finish).
+  Completer<void>? _loading;
+
+  bool get loading => _loading != null && !_loading!.isCompleted;
+
+  Future<void> waitLoaded([Duration limit = const Duration(seconds: 10)]) async {
+    final pending = _loading;
+    if (pending == null || pending.isCompleted) return;
+    try {
+      await pending.future.timeout(limit);
+    } catch (_) {}
+  }
+
   /// The page is on screen; while false the hidden host keeps the WebView up.
   bool get pageVisible => visible.value;
 
@@ -39,9 +52,13 @@ class BrowserSession {
             lastBlockedScheme.value = uri.scheme;
             return NavigationDecision.prevent;
           },
-          onPageStarted: (value) => url.value = value,
+          onPageStarted: (value) {
+            url.value = value;
+            _loading = Completer<void>();
+          },
           onPageFinished: (value) async {
             url.value = value;
+            if (_loading != null && !_loading!.isCompleted) _loading!.complete();
             try {
               final title = await _controller!.getTitle() ?? '';
               await SiteStore.record(url: value, title: title);
@@ -59,8 +76,13 @@ class BrowserSession {
     return c.runJavaScriptReturningResult(script);
   }
 
-  Future<void> open(String target) async {
+  /// Loads [target] and waits until the document settles (or the limit
+  /// passes), so a read straight after open sees the new page.
+  Future<String> open(String target) async {
+    _loading = Completer<void>();
     await controller.loadRequest(Uri.parse(target));
+    await waitLoaded();
+    return url.value.isEmpty ? target : url.value;
   }
 }
 
@@ -125,18 +147,19 @@ class BrowserApi {
     final session = BrowserSession.instance;
     switch (path) {
       case '/state':
-        return {'open': session.opened, 'url': session.url.value, 'visible': session.pageVisible};
+        return {'open': session.opened, 'url': session.url.value, 'visible': session.pageVisible, 'loading': session.loading};
       case '/open':
         final target = (body['url'] as String?)?.trim();
         if (target == null || target.isEmpty) return {'error': 'url required'};
-        await session.open(target);
-        return {'ok': true, 'url': target};
+        final finalUrl = await session.open(target);
+        return {'ok': true, 'url': target, 'finalUrl': finalUrl, 'loading': session.loading};
       case '/snapshot':
         if (!session.opened) return {'error': 'browser_closed'};
         final raw = await session.run(_snapshotScript);
         return {'elements': _elements(raw)};
       case '/read':
         if (!session.opened) return {'error': 'browser_closed'};
+        await session.waitLoaded(const Duration(seconds: 3));
         final raw = await session.run('document.body ? document.body.innerText.slice(0, 20000) : ""');
         final text = _stringOf(raw);
         if (text.contains('ERR_') || text.contains('网页无法打开') || text.contains('This site can')) {
