@@ -65,6 +65,11 @@ function tool(spec) {
 function definitions() {
   return [
     tool({
+      name: "capability_state",
+      description: "查能力控制里各开关的当前状态（哪些会真的拦工具、哪些还没接入），以及最近的拒绝记录。工具返回 denied 时先用它确认是哪个能力被关了。",
+      execute: () => call("/capabilities"),
+    }),
+    tool({
       name: "browser_state",
       description: "看 App 内置浏览器当前状态：是否打开、在哪个网址、有哪些标签（每个标签带 id 和是否当前）。要处理任何网页任务前先调它。",
       execute: () => call("/state"),

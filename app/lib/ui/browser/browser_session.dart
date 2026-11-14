@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 
+import '../../state/capability_guard.dart';
 import '../notify/notify_bridge.dart';
 import '../proxy/proxy_service.dart';
 import 'site_store.dart';
@@ -101,6 +102,17 @@ class BrowserSession {
     if (_tabs.isEmpty) return null;
     final index = activeTab.value.clamp(0, _tabs.length - 1).toInt();
     return _tabs[index];
+  }
+
+  /// 全部暂停 / 关掉浏览器: stop what the page is doing right now, not just refuse the
+  /// next call. Tabs stay (the person can read them again after turning it back on).
+  Future<void> abort() async {
+    final pending = _loading;
+    if (pending != null && !pending.isCompleted) pending.complete();
+    _loading = null;
+    try {
+      await _controller?.stopLoading();
+    } catch (_) {}
   }
 
   Future<void> waitLoaded([Duration limit = const Duration(seconds: 10)]) async {
@@ -477,8 +489,40 @@ class BrowserApi {
     }
   }
 
+  /// Which capability switch a route needs. `/state`, `/capabilities` and `/dav/config`
+  /// stay open, so the model can always ask what is going on.
+  static const _needs = <String, List<String>>{
+    '/open': ['browser'],
+    '/read': ['browser'],
+    '/snapshot': ['browser'],
+    '/click': ['browser'],
+    '/type': ['browser'],
+    '/js': ['browser'],
+    '/screenshot': ['browser'],
+    '/tabs': ['browser'],
+    '/tab-open': ['browser'],
+    '/tab-switch': ['browser'],
+    '/tab-close': ['browser'],
+    '/upload': ['browser', 'files'],
+    '/download': ['files'],
+    '/dav/ls': ['cloud'],
+    '/dav/search': ['cloud'],
+    '/dav/upload': ['cloud', 'files'],
+    '/dav/download': ['cloud', 'files'],
+    '/notify/status': ['notify'],
+    '/notify/list': ['notify'],
+    '/notify/search': ['notify'],
+    '/notify/digest': ['notify'],
+  };
+
   static Future<Object?> _route(String path, Map<String, dynamic> body) async {
     final session = BrowserSession.instance;
+    for (final key in _needs[path] ?? const <String>[]) {
+      if (CapabilityGuard.allows(key)) continue;
+      CapabilityGuard.noteDenial(key, path);
+      return {'error': 'denied', 'capability': key, 'message': CapabilityGuard.messageFor(key)};
+    }
+    if (path == '/capabilities') return {'ok': true, ...CapabilityGuard.describe()};
     switch (path) {
       case '/state':
         return {

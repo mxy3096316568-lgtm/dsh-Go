@@ -5,6 +5,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../runtime/runtime_state.dart';
 import '../../state/capabilities_state.dart';
+import '../../state/capability_guard.dart';
+import '../../state/phone_state.dart';
+import '../browser/browser_session.dart';
 import '../browser/browser_page.dart';
 import '../keepalive/keepalive_bridge.dart';
 import '../notify/notify_bridge.dart';
@@ -33,6 +36,46 @@ class CapabilitiesPage extends ConsumerWidget {
     'memory': ('记忆', '记住偏好和常用文件'),
     'plugins': ('插件权限', '允许插件调用上面的能力'),
   };
+
+  String _subtitleFor(String key) {
+    final base = _labels[key]?.$2 ?? '';
+    if (CapabilityGuard.pending.contains(key)) return '$base ｜ 尚未接入，开关暂时不生效';
+    if (CapabilityGuard.partial.contains(key)) return '$base ｜ 关掉会同时关掉手机操控总闸';
+    return '$base ｜ 关掉后相关工具直接返回 denied';
+  }
+
+  Future<void> _toggle(WidgetRef ref, String key, bool value) async {
+    await ref.read(capabilitiesProvider.notifier).set(key, value);
+    if (key == 'browser' && !value) await BrowserSession.instance.abort();
+    if (key == 'screen') {
+      // 手机操控 has its own master switch: the capability switch drives it, so its tools
+      // are really gone rather than filtered one by one.
+      try {
+        await ref.read(phoneProvider.notifier).setEnabled(value);
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _pauseAll(WidgetRef ref) async {
+    await ref.read(capabilitiesProvider.notifier).pauseAll();
+    await BrowserSession.instance.abort();
+  }
+
+  Future<void> _showDenials(BuildContext context) async {
+    final lines = CapabilityGuard.denials.value;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('最近的拒绝'),
+        content: SingleChildScrollView(
+          child: Text(lines.isEmpty ? '还没有被拦下的调用' : lines.join('\n'), style: const TextStyle(fontSize: 12)),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('关闭')),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -73,13 +116,16 @@ class CapabilitiesPage extends ConsumerWidget {
         SettingsSection(
           title: '能力',
           children: [
+            // 常驻 has its own section below; a switch here would be a second, confusing one.
             for (final key in CapabilitiesController.keys)
+              if (key != 'keepalive')
               SettingsSwitchTile(
                 key: ValueKey('cap-$key'),
                 title: _labels[key]?.$1 ?? key,
-                subtitle: _labels[key]?.$2,
+                subtitle: _subtitleFor(key),
                 value: caps[key] ?? true,
-                onChanged: (v) => unawaited(ref.read(capabilitiesProvider.notifier).set(key, v)),
+                // 尚未接入的开关置灰：能拨但没用，比关掉更让人误会。
+                onChanged: CapabilityGuard.pending.contains(key) ? null : (v) => unawaited(_toggle(ref, key, v)),
               ),
           ],
         ),
@@ -91,8 +137,14 @@ class CapabilitiesPage extends ConsumerWidget {
             SettingsTile(
               key: const ValueKey('cap-pause-all'),
               title: '全部暂停',
-              subtitle: '一次性关掉上面所有能力',
-              onTap: () => unawaited(ref.read(capabilitiesProvider.notifier).pauseAll()),
+              subtitle: '一次性关掉所有能力，并中止正在跑的网页操作',
+              onTap: () => unawaited(_pauseAll(ref)),
+            ),
+            SettingsTile(
+              key: const ValueKey('cap-denials'),
+              title: '最近的拒绝',
+              subtitle: '哪个开关在什么时候拦了哪个工具',
+              onTap: () => _showDenials(context),
             ),
           ],
         ),

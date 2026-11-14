@@ -11,6 +11,7 @@ import 'performance/performance_state.dart';
 import 'performance/refresh_rate.dart';
 import 'state/app_info.dart';
 import 'state/appearance_state.dart';
+import 'state/capabilities_state.dart';
 import 'state/locale_state.dart';
 import 'state/star_prompt.dart' show starPromptGateProvider, starPromptProvider;
 import 'state/tile_style_state.dart';
@@ -71,6 +72,8 @@ class _DshAppState extends ConsumerState<DshApp> with WidgetsBindingObserver {
     // while it is actually drawing (see RefreshRateService).
     RefreshRateService.instance.start();
     BrowserUi.navigatorKey = _navigatorKey;
+    // 能力控制: the tool guard reads these, so they are loaded before the first tool call.
+    ref.read(capabilitiesProvider);
     // 内置代理: restore the last state (a saved subscription that was on comes back).
     unawaited(ProxyService.load());
     WidgetsBinding.instance.addObserver(this);

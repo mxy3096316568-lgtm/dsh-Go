@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'capability_guard.dart';
+
 /// 能力控制: the switches on 设置 → 帮助与关于 → 能力控制, one place for
 /// everything this build adds beyond the original chat.
 class CapabilitiesController extends Notifier<Map<String, bool>> {
@@ -28,7 +30,9 @@ class CapabilitiesController extends Notifier<Map<String, bool>> {
   Map<String, bool> build() {
     // Off until read back, so a switch never shows "on" before its saved value.
     unawaited(_load());
-    return _all(true);
+    final initial = _all(true);
+    CapabilityGuard.update(initial);
+    return initial;
   }
 
   Future<void> _load() async {
@@ -39,11 +43,13 @@ class CapabilitiesController extends Notifier<Map<String, bool>> {
         next[k] = prefs.getBool('$prefix$k') ?? true;
       }
       state = next;
+      CapabilityGuard.update(next);
     } catch (_) {}
   }
 
   Future<void> set(String key, bool value) async {
     state = {...state, key: value};
+    CapabilityGuard.update(state);
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('$prefix$key', value);
@@ -52,6 +58,7 @@ class CapabilitiesController extends Notifier<Map<String, bool>> {
 
   Future<void> pauseAll() async {
     state = _all(false);
+    CapabilityGuard.update(state);
     try {
       final prefs = await SharedPreferences.getInstance();
       for (final k in keys) {
