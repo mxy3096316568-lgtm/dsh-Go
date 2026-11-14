@@ -343,9 +343,9 @@ true
   }
 }
 
-/// Keeps the WebView alive while the browser page is closed: a 1px host off
-/// the screen's corner owns the platform view, so the assistant can keep
-/// reading and clicking after the person returns to the chat.
+/// Keeps the WebView alive under the app: full size, covered by the chat
+/// while the browser page is closed, so tools can still read, click and
+/// capture it without the page popping up over the conversation.
 class BrowserHost extends StatelessWidget {
   const BrowserHost({super.key, required this.child});
 
@@ -355,23 +355,19 @@ class BrowserHost extends StatelessWidget {
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        child,
         ValueListenableBuilder<bool>(
           valueListenable: BrowserSession.instance.visible,
           builder: (context, visible, _) {
             final session = BrowserSession.instance;
             if (visible || !session.opened) return const SizedBox.shrink();
-            return Positioned(
-              left: -2,
-              top: -2,
-              width: 1,
-              height: 1,
+            return Positioned.fill(
               child: IgnorePointer(
                 child: WebViewWidget(key: const ValueKey('browser-host'), controller: session.controller),
               ),
             );
           },
         ),
+        child,
       ],
     );
   }
