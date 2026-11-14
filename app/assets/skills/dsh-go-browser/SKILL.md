@@ -16,6 +16,8 @@ App 里有一个自己的浏览器（独立 cookie，和手机浏览器分开）
 | `browser_snapshot` | 列出可点元素，每个带编号 ref |
 | `browser_click` | 点第 ref 个元素 |
 | `browser_type` | 往第 ref 个输入框填字 |
+| `browser_js` | 执行你现写的脚本（可 await、fetch、读 localStorage），一步取数据 |
+| `browser_download` | 下载文件到 下载/DSH-Go |
 
 ## 什么时候用
 
@@ -30,6 +32,26 @@ App 里有一个自己的浏览器（独立 cookie，和手机浏览器分开）
 3. 需要内容时 `browser_read`；需要操作时先 `browser_snapshot` 拿编号。
 4. `browser_click(ref)` / `browser_type(ref, text)` 按编号操作。
 5. 操作后再 `browser_read` 确认结果。
+
+## 什么时候用脚本（browser_js）
+
+- 要取结构化数据（列表、表格、链接）——一段脚本比十几次点击准得多。
+- 要操作播放器、图表、状态库这类没有明显按钮的东西。
+- 页面里已有登录态，要带着它请求接口。
+
+写法：直接写语句，`return` 或最后表达式就是结果；结果按 JSON 返回，超过 32KB 截断。
+脚本有副作用：能改页面、能用登录态发请求，所以只做用户要的事，别擅自改数据。
+
+```js
+const rows = [...document.querySelectorAll('.result h3')].slice(0, 10)
+return rows.map(r => r.innerText)
+```
+
+## 下载
+
+- `browser_download(url, filename?)` 存到 `下载/DSH-Go`，同名自动加 (1)。
+- 下载前先问用户一句要不要存到手机；小文件、用户明确说要的可以直接下。
+- 单文件上限 1GB，完成才返回。
 
 ## 规矩
 
