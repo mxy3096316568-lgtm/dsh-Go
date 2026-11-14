@@ -12,8 +12,9 @@ class CapabilityGuard {
   /// Tools exist and are refused when off.
   static const enforced = {'browser', 'files', 'cloud', 'notify'};
 
-  /// Off also turns off the phone-control master switch (no tool of ours goes through it).
-  static const partial = {'screen'};
+  /// Controlled elsewhere: 屏幕控制 is the app's 手机操控 master switch (settings →
+  /// 手机操控), so 能力控制 shows its state and links there instead of owning a copy.
+  static const linked = {'screen': '手机操控'};
 
   /// Nothing to enforce yet: the page shows them as 尚未接入 and does not pretend.
   static const pending = {'automation', 'voice', 'memory', 'plugins'};
@@ -68,7 +69,7 @@ class CapabilityGuard {
   static Map<String, Object?> describe() => {
     'values': values,
     'enforced': enforced.toList(),
-    'partial': partial.toList(),
+    'linked': linked.keys.toList(),
     'pending': pending.toList(),
     'recentDenials': denials.value,
   };

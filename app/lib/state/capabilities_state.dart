@@ -17,7 +17,6 @@ class CapabilitiesController extends Notifier<Map<String, bool>> {
     'keepalive',
     'notify',
     'automation',
-    'screen',
     'files',
     'voice',
     'memory',

@@ -8,6 +8,7 @@ import '../../state/capabilities_state.dart';
 import '../../state/capability_guard.dart';
 import '../../state/phone_state.dart';
 import '../browser/browser_session.dart';
+import '../phone/phone_control_screen.dart';
 import '../browser/browser_page.dart';
 import '../keepalive/keepalive_bridge.dart';
 import '../notify/notify_bridge.dart';
@@ -43,20 +44,27 @@ class CapabilitiesPage extends ConsumerWidget {
       final note = CapabilityGuard.pendingNotes[key] ?? '尚未接入，开关暂时不生效';
       return '$base ｜ 尚未接入：$note';
     }
-    if (CapabilityGuard.partial.contains(key)) return '$base ｜ 关掉会同时关掉手机操控总闸';
     return '$base ｜ 关掉后相关工具直接返回 denied';
   }
 
   Future<void> _toggle(WidgetRef ref, String key, bool value) async {
     await ref.read(capabilitiesProvider.notifier).set(key, value);
     if (key == 'browser' && !value) await BrowserSession.instance.abort();
-    if (key == 'screen') {
-      // 手机操控 has its own master switch: the capability switch drives it, so its tools
-      // are really gone rather than filtered one by one.
-      try {
-        await ref.read(phoneProvider.notifier).setEnabled(value);
-      } catch (_) {}
-    }
+  }
+
+  /// 屏幕控制 reads the 手机操控 state; it owns no switch of its own.
+  String _phoneValue(WidgetRef ref) {
+    final phone = ref.watch(phoneProvider);
+    if (!phone.loaded || !phone.status.ready) return '未设置';
+    return phone.status.enabled ? '已开启' : '已关闭';
+  }
+
+  String _phoneSubtitle(WidgetRef ref) {
+    final phone = ref.watch(phoneProvider);
+    if (!phone.loaded) return '正在读取手机操控状态…';
+    if (!phone.status.ready) return '还没设置手机操控，点这里去设置';
+    if (!phone.status.enabled) return '已关闭：读屏与受控点击都不可用，点这里去开关';
+    return phone.status.a11y.ok ? '已开启：读屏、受控点击可用' : '已开启，还差无障碍权限';
   }
 
   Future<void> _pauseAll(WidgetRef ref) async {
@@ -107,6 +115,15 @@ class CapabilitiesPage extends ConsumerWidget {
               title: '云盘',
               subtitle: 'WebDAV 网盘：地址、账号和密码',
               onTap: () => Navigator.of(context).push(WebdavPage.route()),
+            ),
+            SettingsTile(
+              key: const ValueKey('cap-phone-control'),
+              title: '屏幕控制（手机操控）',
+              subtitle: _phoneSubtitle(ref),
+              value: Text(_phoneValue(ref)),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => const PhoneControlScreen()),
+              ),
             ),
             SettingsTile(
               key: const ValueKey('cap-open-proxy'),
