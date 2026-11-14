@@ -34,7 +34,15 @@ async function call(path, body) {
   return json;
 }
 
-const OUT = { schema: { type: "object", additionalProperties: true }, render: () => undefined };
+const OUT = {
+  schema: { type: "object", additionalProperties: true },
+  render: (_args, value) => [
+    {
+      type: "text",
+      text: typeof value?.text === "string" ? value.text : JSON.stringify(value, null, 2),
+    },
+  ],
+};
 
 function tool(spec) {
   const properties = spec.properties ?? {};
