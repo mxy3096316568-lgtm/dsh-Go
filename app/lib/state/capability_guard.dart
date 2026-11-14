@@ -18,6 +18,15 @@ class CapabilityGuard {
   /// Nothing to enforce yet: the page shows them as 尚未接入 and does not pretend.
   static const pending = {'automation', 'voice', 'memory', 'plugins'};
 
+  /// Why a pending switch is pending — three of them are not "no feature", they are
+  /// "feature exists elsewhere, no gate yet", which is a different promise.
+  static const pendingNotes = <String, String>{
+    'automation': '引擎的定时任务已经有了，这个开关还没接上拦截',
+    'voice': 'App 有朗读和语音输入，这个开关还没接上拦截',
+    'memory': '本地记忆功能还没做（计划 b9）',
+    'plugins': '插件协议的 wants 还没有统一拦截点',
+  };
+
   static const labels = <String, String>{
     'browser': '浏览器',
     'files': '文件',

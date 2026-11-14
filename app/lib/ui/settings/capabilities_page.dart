@@ -39,7 +39,10 @@ class CapabilitiesPage extends ConsumerWidget {
 
   String _subtitleFor(String key) {
     final base = _labels[key]?.$2 ?? '';
-    if (CapabilityGuard.pending.contains(key)) return '$base ｜ 尚未接入，开关暂时不生效';
+    if (CapabilityGuard.pending.contains(key)) {
+      final note = CapabilityGuard.pendingNotes[key] ?? '尚未接入，开关暂时不生效';
+      return '$base ｜ 尚未接入：$note';
+    }
     if (CapabilityGuard.partial.contains(key)) return '$base ｜ 关掉会同时关掉手机操控总闸';
     return '$base ｜ 关掉后相关工具直接返回 denied';
   }
