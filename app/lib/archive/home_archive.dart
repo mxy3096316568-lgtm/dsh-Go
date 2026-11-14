@@ -82,8 +82,7 @@ class HomeArchive {
       if (dir.existsSync()) {
         for (final entity in dir.listSync(recursive: true, followLinks: false)) {
           if (entity is! File) continue;
-          final name = _baseName(entity.path);
-          if (skipFileNames.contains(name)) continue;
+          if (skipFileNames.contains(_baseName(entity.path))) continue;
           bytes += entity.lengthSync();
           files++;
         }
@@ -106,7 +105,7 @@ class HomeArchive {
     for (final rel in includeFiles) {
       _addFile(archive, rel);
     }
-    final bytes = ZipEncoder().encode(archive);
+    final bytes = Uint8List.fromList(ZipEncoder().encode(archive));
     final target = await _exportTarget();
     target.writeAsBytesSync(bytes, flush: true);
     return target;
@@ -115,30 +114,35 @@ class HomeArchive {
   /// Restores [zip] over this root. Existing files are overwritten; the archive
   /// never deletes anything it does not carry.
   Future<int> import(File zip) async {
-    final bytes = zip.readAsBytesSync();
-    final archive = ZipDecoder().decodeBytes(bytes);
+    final input = InputFileStream(zip.path);
+    final Archive archive;
+    try {
+      archive = ZipDecoder().decodeStream(input);
+    } finally {
+      await input.close();
+    }
     var written = 0;
-    for (final entry in archive) {
+    for (final entry in archive.files) {
       if (!entry.isFile) continue;
       final rel = entry.name;
       if (_isUnsafe(rel)) continue;
       final target = File('${root.path}/$rel');
-      target.parent.createSync(recursive: true);
-      final content = entry.content;
-      final data = content is Uint8List ? content : Uint8List.fromList(content as List<int>);
-      target.writeAsBytesSync(data, flush: true);
+      await target.parent.create(recursive: true);
+      final output = openOutput(target.path);
+      try {
+        entry.writeContent(output);
+      } finally {
+        await output.close();
+      }
       written++;
     }
     return written;
   }
 
   Future<File> _exportTarget() async {
-    final stamp = DateTime.now()
-        .toIso8601String()
-        .replaceAll(':', '')
-        .replaceAll('-', '')
-        .split('.')
-        .first;
+    final now = DateTime.now();
+    final stamp = '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}'
+        '-${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}';
     final name = 'dsh-go-archive-$stamp.zip';
     // Prefer the shared Download folder so the file can be moved off the phone.
     final downloads = Directory('/sdcard/Download/DSH-Go');
@@ -162,15 +166,12 @@ class HomeArchive {
 
   void _addFile(Archive archive, String rel) {
     if (skipFileNames.contains(_baseName(rel))) return;
+    for (final segment in rel.split('/')) {
+      if (skipDirNames.contains(segment)) return;
+    }
     final file = File('${root.path}/$rel');
     if (!file.existsSync()) return;
-    var skipped = false;
-    for (final segment in rel.split('/')) {
-      if (skipDirNames.contains(segment)) skipped = true;
-    }
-    if (skipped) return;
-    final data = file.readAsBytesSync();
-    archive.addFile(ArchiveFile(rel, data.length, data));
+    archive.add(ArchiveFile.bytes(rel, file.readAsBytesSync()));
   }
 
   String _relative(String absolute) =>

@@ -70,11 +70,8 @@ Future<void> importArchive(BuildContext context) async {
     showBriefNotice(context, '本机运行时还没装好，没有可恢复的位置');
     return;
   }
-  final picked = await FilePicker.platform.pickFiles(
-    type: FileType.custom,
-    allowedExtensions: <String>['zip'],
-  );
-  final path = (picked != null && picked.files.isNotEmpty) ? picked.files.first.path : null;
+  final picked = await FilePicker.pickFiles();
+  final path = picked.isEmpty ? null : picked.first.path;
   if (path == null || !context.mounted) return;
   final ok = await _confirm(
     context,
