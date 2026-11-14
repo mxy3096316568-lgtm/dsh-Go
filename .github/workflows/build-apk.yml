@@ -75,7 +75,9 @@ jobs:
             echo "no sdkmanager under $SDK_ROOT"; ls "$SDK_ROOT" || true; exit 1
           fi
           echo "sdkmanager: $SDKM"
-          yes | "$SDKM" --install "ndk;28.2.13676358" > /dev/null
+          # sdkmanager closes stdin once it has what it needs; `yes` then dies with
+          # SIGPIPE, so the pipe's status is not the install's. Verify the directory.
+          yes | "$SDKM" --install "ndk;28.2.13676358" > /dev/null 2>&1 || true
           test -d "$SDK_ROOT/ndk/28.2.13676358"
           echo "ANDROID_NDK_HOME=$SDK_ROOT/ndk/28.2.13676358" >> "$GITHUB_ENV"
 
