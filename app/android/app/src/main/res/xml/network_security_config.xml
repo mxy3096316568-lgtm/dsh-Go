@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Cleartext only for the local DSH server on loopback; everything else stays HTTPS-only. -->
 <network-security-config>
+    <!-- 内置浏览器要能打开普通的 http 页面（很多站点仍是 http）。 -->
+    <base-config cleartextTrafficPermitted="true" />
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="false">127.0.0.1</domain>
         <domain includeSubdomains="false">localhost</domain>
