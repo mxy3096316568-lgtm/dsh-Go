@@ -111,7 +111,8 @@ class BrowserSession {
     if (pending != null && !pending.isCompleted) pending.complete();
     _loading = null;
     try {
-      await _controller?.stopLoading();
+      // webview_flutter 4.x has no stopLoading: navigating away is what cancels a load.
+      await _controller?.loadRequest(Uri.parse('about:blank'));
     } catch (_) {}
   }
 
