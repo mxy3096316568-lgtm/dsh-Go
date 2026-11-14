@@ -40,6 +40,28 @@ jobs:
         with:
           persist-credentials: false
 
+      # The release key comes from repository secrets, so every build of this
+      # package upgrades in place instead of needing an uninstall.
+      - name: Write the release key
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KEYSTORE_B64:-}" ]; then
+            echo "no release key configured; the build will use the debug key"
+            exit 0
+          fi
+          printf '%s' "$KEYSTORE_B64" | base64 -d > app/android/release.keystore
+          cat > app/android/key.properties <<PROPS
+          storeFile=../release.keystore
+          storePassword=$STORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          PROPS
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
