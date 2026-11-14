@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'ui/browser/browser_session.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -163,6 +164,8 @@ class _DshAppState extends ConsumerState<DshApp> with WidgetsBindingObserver {
     }
     return MaterialApp(
       title: AppInfo.name,
+      // 内置浏览器: keeps its WebView mounted while the page is closed.
+      builder: (context, child) => BrowserHost(child: child ?? const SizedBox.shrink()),
       debugShowCheckedModeBanner: false,
       theme: _light,
       darkTheme: _dark,
