@@ -141,6 +141,11 @@ class ProxyService {
 
   static Future<ProxyState> start({bool quiet = false}) async {
     try {
+      // A config written by an older version can still carry a second `mode` /
+      // `log-level` (the kernel then dies with "duplicate key" and the switch never
+      // turns on). Healing happens on every start, so an existing install is fixed
+      // by tapping the switch — no re-import needed.
+      await _healConfig();
       final map = await _channel.invokeMapMethod<String, Object?>('start', {'port': state.value.port});
       final next = _merge(map);
       state.value = next;
@@ -151,6 +156,26 @@ class ProxyService {
     } on PlatformException catch (error) {
       if (!quiet) state.value = state.value.copyWith(hint: '启动失败：${error.message ?? error.code}', error: error.code);
       return state.value;
+    }
+  }
+
+  /// Rewrites the config on disk through [sanitizeClashConfig] when it differs.
+  ///
+  /// Idempotent: a config this app generated comes back byte for byte, so a
+  /// healthy file is not rewritten on every start. Failures are not fatal here —
+  /// the kernel's own error (and the config head in the log) tells the story.
+  static Future<void> _healConfig() async {
+    try {
+      final map = await _channel.invokeMapMethod<String, Object?>('readConfig');
+      final content = map?['content'] as String?;
+      if (content == null || content.isEmpty) return;
+      final healed = sanitizeClashConfig(content, port: state.value.port);
+      _configHead = healed.split('\n').take(15).join('\n');
+      if (healed == content) return;
+      await _channel.invokeMapMethod<String, Object?>('writeConfig', {'content': healed});
+      debugPrint('proxy: repaired a config with duplicate keys');
+    } catch (_) {
+      // Missing plugin (tests) or an unreadable file: start will report it.
     }
   }
 
@@ -209,6 +234,12 @@ class ProxyService {
   }
 
   static String _hintFor(Map<String, Object?> map) {
+    // 旧版本写下的配置里 mode / log-level 各出现两次，内核直接 fatal，看起来像
+    // 「端口没起来」。修复是按行重写配置（start 前会做），这里只把话说清楚。
+    final kernelLog = map['log'];
+    if (kernelLog is List && kernelLog.any((line) => '$line'.contains('duplicate key'))) {
+      return '订阅配置里有重复的 mode / log-level，内核拒绝了这份配置。点「导入并启动」重新生成一次即可（新版启动前也会自动修复）。';
+    }
     switch (map['error']) {
       case 'kernel_missing':
         return '这个安装包里没有代理内核（libmihomo.so），需要重新构建';

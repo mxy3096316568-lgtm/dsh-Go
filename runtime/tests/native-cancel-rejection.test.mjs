@@ -35,7 +35,11 @@ async function probe(kind, timing, outcome, directory) {
     logger: { warn: error => warnings.push(String(error)) },
     provide(name, value) { services[name] = value; },
     effect(fn) { const dispose = fn(); if (typeof dispose === 'function') disposers.push(dispose); return dispose; },
-    on() {}, inject(_names, fn) { fn(ctx); },
+    on() {},
+    // Like Cordis: a contribution runs when its services are there. Running it
+    // unconditionally made the five `tools` registrations fail at startup and
+    // counted those warnings as if they were producer-cleanup warnings.
+    inject(names, fn) { if (names.every(name => ctx.get(name) !== undefined || ctx[name] !== undefined)) fn(ctx); },
     webServer: {
       tapIndex() { return () => {}; },
       register(route) { routes.push(route); return () => {}; },

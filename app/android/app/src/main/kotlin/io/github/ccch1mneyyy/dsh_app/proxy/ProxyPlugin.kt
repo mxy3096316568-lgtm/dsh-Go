@@ -51,6 +51,7 @@ class ProxyPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                     result.success(writeConfig(context, content))
                 }
             }
+            "readConfig" -> result.success(readConfig(context))
             "start" -> result.success(start(context, call.argument<Number>("port")?.toInt() ?: DEFAULT_PORT))
             "stop" -> result.success(stop(context))
             "log" -> result.success(lastLines(logFile(context), 40))
@@ -66,6 +67,18 @@ class ProxyPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         "config" to configFile(context).exists(),
         "error" to lastError,
     )
+
+    /** The config on disk, so the Dart side can re-sanitise one written by an older version. */
+    private fun readConfig(context: Context): Map<String, Any?> = try {
+        val file = configFile(context)
+        if (!file.exists()) {
+            mapOf("error" to "no_config")
+        } else {
+            mapOf("content" to file.readText(), "path" to file.absolutePath, "bytes" to file.length())
+        }
+    } catch (error: Exception) {
+        mapOf("error" to "read_failed", "message" to "${error.message ?: error}")
+    }
 
     private fun writeConfig(context: Context, content: String): Map<String, Any?> = try {
         val dir = dataDir(context)

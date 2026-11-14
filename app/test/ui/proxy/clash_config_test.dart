@@ -67,4 +67,11 @@ void main() {
     }
     expect(out, contains('rules: []'));
   });
+
+  test('sanitising an already healed config changes nothing (idempotent)', () {
+    const yaml = 'proxies:\n  - {name: a}\nrules:\n  - MATCH,DIRECT\nmode: global\n';
+    final once = sanitizeClashConfig(yaml, port: 7895);
+    final twice = sanitizeClashConfig(once, port: 7895);
+    expect(twice, once);
+  });
 }

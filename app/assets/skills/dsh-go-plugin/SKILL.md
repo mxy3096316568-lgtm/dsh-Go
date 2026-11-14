@@ -223,6 +223,32 @@ ctx.dshGo.onCapability((scope, { event }) => {})   // audio.ended / voice.speech
 
 慢的事（TTS）放在 `media` 里，不放在 `on` 里。App 负责：开口时先停播再通知、问用户能不能听、只在前台、声音结束后自动停听关字幕。没有 TTS 时可以像 `examples/plugins/dsh-go-example-readaloud` 那样合成占位音。
 
+## 宿主能力（v1.4，可选）
+
+清单的 `capabilities` 里按需写 `sessionText` `selection` `send` `notify` `phone` `tools` `schedule` `pluginFiles`
+（`pluginFiles` 是插件自己的数据目录；App 选用户文件的 `files` 是另一项，别混）。
+都从同一个入口调，**只能在点按回调里**（`on(id)` / panel action）用；返回值是 App 给的值，失败抛错、`error.code` 说明原因。
+
+```js
+const { text } = await ctx.dshGo.capability('sessionText', { limit: 8000 })   // 当前对话全文（只读）
+const sel = await ctx.dshGo.capability('selection')                          // 用户刚选中的文字
+await ctx.dshGo.capability('send', { text: '帮我改一下' })                    // 只填输入框，不发送
+await ctx.dshGo.capability('notify', { title: '跑完了', text: '3 个页面已入库' })
+await ctx.dshGo.capability('schedule', { title: '每天看一次', prompt: '检查这个页面',
+  timing: { kind: 'daily', time: { hour: 9, minute: 0, time_zone: 'Asia/Shanghai' } } })
+const out = await ctx.dshGo.capability('phone', { tool: 'mcp__phone__screen' })  // 只能 mcp__phone__*
+const res = await ctx.dshGo.capability('tools', { tool: 'web_search', args: { queries: ['x'] } })
+await ctx.dshGo.capability('pluginFiles', { op: 'write', path: 'state.json', text: '{}' })  // 还有 read/list/stat/delete
+```
+
+- **慢的就用延后结果**：普通 handler 只有 3 秒预算，`phone` / `tools` 要等用户确认，放进 `pending` 里做。
+- **App 会问你的人**：第一次用按插件记（授权记录里可撤销）；`phone` / `tools` **每次都问**，没有「总是允许」。
+  能力控制 → 插件权限关掉时全部拒绝。
+- **错误码**：`unsupported`（没声明/没协商/没流）、`denied`、`timeout`、`limit`（一条流同时最多 4 个）、
+  `too-large`、`bad-request`、`unavailable`、`not-found`、`failed`。
+- **上限**：会话文字截到 60 KiB；`pluginFiles` 单文件 1 MiB、路径不许出数据目录；`tools.args` ≤ 2 KiB。
+- 没有 App 在线的连接（比如中转主机）没有这些能力；不要在模块顶层或数据函数里调。
+
 ## 规矩
 
 - v1 保留原样式；v2 可用文档列出的颜色、语义字号、字重、spans 和容器样式。不要写任意 CSS、字体文件、尺寸、透明度、渐变或动画参数；实际几何、可读色和内容边界仍由 App 决定。

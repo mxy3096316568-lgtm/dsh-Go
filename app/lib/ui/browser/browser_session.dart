@@ -240,6 +240,14 @@ class BrowserSession {
     _loading = Completer<void>();
     await controller.loadRequest(Uri.parse(target));
     await waitLoaded();
+    lastLoadTimedOut = loading;
+    if (loading) {
+      // Nothing finished in ten seconds: stop pretending the page is loading, so the
+      // route can report a failed open instead of handing back a stale URL.
+      final pending = _loading;
+      if (pending != null && !pending.isCompleted) pending.complete();
+      _loading = null;
+    }
     // Not [url]: a load that failed never fires `onPageFinished`, so the notifier can
     // still name the page from before — the old `finalUrl` was whichever WebView load
     // finished last, which on a tab switch is the tab that was left behind.
@@ -248,6 +256,20 @@ class BrowserSession {
     final tab = currentTab;
     if (tab != null) tab.url = finalUrl;
     return finalUrl;
+  }
+
+  /// The last [open] ran out its ten-second wait without a finished page.
+  bool lastLoadTimedOut = false;
+
+  /// Waits briefly for a click to start a navigation, so an immediate read of the
+  /// state sees the new page instead of the one before the click.
+  Future<void> waitForNavigation([Duration limit = const Duration(milliseconds: 1200)]) async {
+    final before = url.value;
+    final deadline = DateTime.now().add(limit);
+    while (DateTime.now().isBefore(deadline)) {
+      if (url.value != before || loading) return;
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+    }
   }
 
   /// Where the WebView is right now; empty when it has not committed a page.
@@ -421,13 +443,19 @@ class BrowserSession {
   const transfer = new DataTransfer();
   transfer.items.add(file);
   el.files = transfer.files;
+  const assigned = el.files ? el.files.length : 0;
   // Remember the element and the count: a page that rebuilds its input in the change
   // handler detaches this one, and the file it got is still the one we handed over.
   window.__dshUpTarget = el;
-  window.__dshUpCount = transfer.files.length;
+  window.__dshUpCount = assigned;
+  const before = assigned;
   el.dispatchEvent(new Event("input", { bubbles: true }));
   el.dispatchEvent(new Event("change", { bubbles: true }));
-  return "filled";
+  const after = el.files ? el.files.length : 0;
+  // Pages often copy the File into their own state and clear the input in the same
+  // handler. "We set one, it is gone now" means the page took it, not that it refused.
+  const cleared = before >= 1 && after === 0;
+  return { count: after, assigned: before, cleared, name: file.name };
 })()
 ''';
     final fill = await BrowserApi.runJs(this, fillScript, 60000);
@@ -436,6 +464,15 @@ class BrowserSession {
     if (filled == 'missing') return {'error': 'not_found', 'message': '这个编号不存在，请重新 snapshot'};
     if (filled == 'not_file') {
       return {'error': 'unsupported', 'message': '这个编号不是文件选择框（<input type=file>）'};
+    }
+    final assigned = filled is Map ? (filled['assigned'] as num?)?.toInt() ?? 0 : 0;
+    final acceptedAtOnce = filled is Map ? (filled['count'] as num?)?.toInt() ?? 0 : 0;
+    if (acceptedAtOnce >= 1) {
+      return {'ok': true, 'path': path, 'name': name, 'bytes': bytes.length, 'files': acceptedAtOnce};
+    }
+    if (assigned >= 1 && filled is Map && filled['cleared'] == true) {
+      // The page read the File and emptied the chooser in its change handler.
+      return {'ok': true, 'path': path, 'name': name, 'bytes': bytes.length, 'files': 1, 'consumed': true};
     }
     // A page may fill `input.files` from its own change handler, a frame or a re-render
     // later. Ask again for up to two seconds instead of judging one snapshot: a false
@@ -447,7 +484,14 @@ class BrowserSession {
   if (!el) return { state: "missing", detached: !!(target && target.isConnected === false) };
   if (String(el.tagName || "").toLowerCase() !== "input" || String(el.type || "").toLowerCase() !== "file") return { state: "not_file" };
   const files = el.files;
-  return { state: "ok", count: files ? files.length : 0, name: files && files[0] ? files[0].name : "" };
+  // A component may move the File into a fresh input it created: look for it.
+  let moved = 0;
+  if (!files || files.length === 0) {
+    for (const other of document.querySelectorAll('input[type=file]')) {
+      if (other !== el && other.files && other.files.length > 0) { moved = other.files.length; break; }
+    }
+  }
+  return { state: "ok", count: files ? files.length : 0, moved, name: files && files[0] ? files[0].name : "" };
 })()
 ''';
     var count = 0;
@@ -476,6 +520,13 @@ class BrowserSession {
         count = picked;
         break;
       }
+      final moved = (value['moved'] as num?)?.toInt() ?? 0;
+      if (moved >= 1) {
+        // The page took it and put it in another input of its own.
+        replaced = true;
+        count = moved;
+        break;
+      }
     }
     if (count >= 1) {
       return {
@@ -489,8 +540,13 @@ class BrowserSession {
     }
     return {
       'error': 'unsupported',
-      'message': '页面没有接受这个文件（等了 2 秒，input.files 还是空的）',
+      'message': '页面没有接受这个文件（等了 2 秒，选择框还是空的）。'
+          '如果页面上已经显示了文件或开始上传，就不用重试；否则重新 snapshot 再传一次。',
       'files': 0,
+      // Diagnostics for the next report: did anything reach the page at all?
+      'assigned': assigned,
+      'visible': pageVisible,
+      'url': url.value,
     };
   }
 
@@ -674,6 +730,17 @@ class BrowserApi {
         if (target == null || target.isEmpty) return {'error': 'url required'};
         try {
           final finalUrl = await session.open(target);
+          if (session.lastLoadTimedOut) {
+            session.markLoadFailed();
+            return {
+              'error': 'load_timeout',
+              'message': '页面 10 秒内没加载完（网络不通、站点太慢，或被代理挡住），现在可能是空白页。检查网络后重试。',
+              'url': target,
+              'finalUrl': finalUrl,
+              'loading': session.loading,
+              'tabs': _tabsOf(session),
+            };
+          }
           final mark = await session.loadErrorMark();
           if (mark.isNotEmpty) {
             session.markLoadFailed();
@@ -793,7 +860,15 @@ class BrowserApi {
         if (BrowserSession._stringOf(raw) == 'missing') {
           return {'error': 'not_found', 'message': '这个编号不存在，请重新 snapshot'};
         }
-        return {'ok': true};
+        // A click that navigates takes a moment to show up; wait a little so a read
+        // straight after it is not answered with the previous page.
+        await session.waitForNavigation();
+        return {
+          'ok': true,
+          'url': session.url.value,
+          'loading': session.loading,
+          'tabs': _tabsOf(session),
+        };
       case '/type':
         if (!session.opened) return {'error': 'browser_closed'};
         final ref = body['ref'];
@@ -845,7 +920,13 @@ class BrowserApi {
         final doc = (body['doc'] as String?) ?? '';
         final chunk = (body['chunk'] as int?) ?? 0;
         final text = _kb.readChunkText(doc, chunk);
-        if (text == null) return {'error': 'not_found', 'message': '没有这个块，先 kb_search'};
+        if (text == null) {
+          final docs = await _kb.docs();
+          if (!docs.any((item) => item.path == doc)) {
+            return {'error': 'not_found', 'message': '知识库里没有这个文档：$doc。先用 kb_search 或 kb_docs 看有哪些文档'};
+          }
+          return {'error': 'not_found', 'message': '这个文档没有第 $chunk 块（块序号从 0 开始），先 kb_search 看命中的块'};
+        }
         return {'ok': true, 'doc': doc, 'chunk': chunk, 'text': text};
       case '/kb/import':
         final path = (body['path'] as String?)?.trim() ?? '';
@@ -904,7 +985,9 @@ class BrowserApi {
           index: _kb,
         );
         final stats = await _kb.refresh();
-        return {'ok': true, ...crawl.toJson(), 'docs': stats.docs, 'chunks': stats.chunks};
+        // Nothing fetched at all (wrong scheme, robots-blocked, unreachable) is a failed
+        // crawl, not a success with failed: 1 buried in the counts.
+        return {'ok': crawl.fetched > 0, ...crawl.toJson(), 'docs': stats.docs, 'chunks': stats.chunks};
       case '/notify/status':
         final status = await NotifyBridge.status();
         return {'ok': true, 'granted': status.granted, 'count': status.count};

@@ -296,7 +296,15 @@ class WebdavClient {
       if (raw == null || raw.isEmpty) continue;
       final decodedHref = Uri.decodeFull(raw);
       final hrefPath = Uri.tryParse(decodedHref)?.path ?? decodedHref;
-      final decoded = hrefPath.isEmpty ? '/' : hrefPath;
+      // `Uri.path` keeps percent escapes: decode before taking the last segment, or a
+      // name like 规范 (encoded %E8%A7%84%E8%8C%83) matches a search for "a".
+      String decodedPath;
+      try {
+        decodedPath = Uri.decodeFull(hrefPath);
+      } catch (_) {
+        decodedPath = hrefPath;
+      }
+      final decoded = decodedPath.isEmpty ? '/' : decodedPath;
       final path = decoded.startsWith(accountPath)
           ? '/${decoded.substring(accountPath.length)}'
           : (decoded.startsWith('/') ? decoded : '/$decoded');

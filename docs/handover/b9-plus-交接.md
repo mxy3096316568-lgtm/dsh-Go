@@ -79,3 +79,21 @@ await ctx.dshGo.capability('tools', { tool: 'web_search', args: { queries: ['x']
 - relay 中转主机不提供 `/dsh-go/*`，这些能力不可用
 - 手机操控的每个工具调用仍受现有无障碍/权限与 App 内确认约束
 - 授权记录里的插件授权在关掉「插件权限」时自动失效
+
+## 复测第二轮（2026-11-15 07:20 报告）修了什么
+
+| # | 现象 | 根因 | 改法 |
+|---|---|---|---|
+| 1 | 点代理开关永远不显示「开」，日志 `duplicate key "mode"` | 开关走 `start()`，直接启动内核，**不重写磁盘上旧版本写下的配置**；只有「导入并启动」会 sanitize | Kotlin 加 `readConfig`；每次 `start` 前读回配置、过同一个 sanitize、不一致就写回（幂等）。老配置点一次开关就修好；仍失败时文案直说「重复的 mode/log-level，点导入并启动」 |
+| 2 | 上传对真实 input 返回 `files:0`，注入的 input 也失败 | 页面常在 change 处理器里把 File 读走并**当场清空** `input.files`；只在事后轮询就永远看到 0 | 填完立即同步回读：`assigned`（赋值后）与 `cleared`（赋值→清空）都算页面已接收；轮询也认「文件被移到页面上另一个 file input」；失败结果带 `assigned/visible/url` 供下次定位 |
+| 3 | 云盘 search 单字母命中中文目录 | `Uri.path` 保留 percent 编码，取末段得到 `%E8%A7%84…`，`a` 命中编码里的十六进制 | 先 `Uri.decodeFull(path)` 再取名字/路径；回归用例：名字不含 a、编码含 a |
+| 4 | 打不开的站点返回 `ok:true`、`loading` 一直 true | `open` 等 10 秒没完成就照样返回 finalUrl | 记录 `lastLoadTimedOut`，完成挂起的 loading，`/open` 返回 `load_timeout` 并说明「可能还是空白页」 |
+| 5 | 点「百度一下」后立刻读 state 还是旧页 | `click` 返回时导航尚未开始 | `click` 后最多等 1.2 秒看 url/loading 变化，再返回 `url/loading/tabs` |
+| 6 | `kb_read` 文档不存在说「没有这个块」 | 文案没区分文档与块 | 先查文档是否存在：不存在说「知识库里没有这个文档」，存在才是块序号问题 |
+| 7 | `web_crawl` 传 `ftp://` 仍 `ok:true` | 路由固定 `ok:true` | `ok: fetched > 0`；一页没抓到就是失败 |
+
+另外同一批：
+
+- 插件技能文档补「宿主能力（v1.4）」并 `sync-skill.mjs` 同步
+- 修两个既有红 CI：`test_input_store.py` 写死 `proot-v5.1.107.98.zip`（已升到 `.102`）→ 按 `PROOT_VERSION` 取键；
+  `native-cancel-rejection` 的假 `inject` 无条件执行导致 5 条启动告警 → 改为依赖存在才执行，12 例全过
