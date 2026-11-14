@@ -164,8 +164,6 @@ class _DshAppState extends ConsumerState<DshApp> with WidgetsBindingObserver {
     }
     return MaterialApp(
       title: AppInfo.name,
-      // 内置浏览器: keeps its WebView mounted while the page is closed.
-      builder: (context, child) => BrowserHost(child: child ?? const SizedBox.shrink()),
       debugShowCheckedModeBanner: false,
       theme: _light,
       darkTheme: _dark,
@@ -190,12 +188,14 @@ class _DshAppState extends ConsumerState<DshApp> with WidgetsBindingObserver {
           child: AppMotionScope(
             fluid: fluid,
             child: ThemeRevealHost(
-              child: Stack(
+              child: BrowserHost(
+                child: Stack(
                 fit: StackFit.expand,
-                children: [
-                  MirroredSideInsets(child: child!),
-                  const LaunchLayer(),
-                ],
+                  children: [
+                    MirroredSideInsets(child: child!),
+                    const LaunchLayer(),
+                  ],
+                ),
               ),
             ),
           ),
