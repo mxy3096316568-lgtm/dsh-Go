@@ -34,12 +34,13 @@ class DshService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    override fun onStartCommand(rawIntent: Intent?, flags: Int, startId: Int): Int {
         val controller = RuntimeController.get(this)
         val boot = BootStart.enabled(this)
-        // A sticky restart (the system killed us) arrives with no intent: replay the last
-        // environment so the engine comes back by itself instead of idling empty.
-        when (intent?.action ?: if (boot) ACTION_BOOT else null) {
+        // A sticky restart (the system killed us) arrives with no intent: take the boot path so
+        // the engine comes back by itself instead of idling empty.
+        val intent = rawIntent ?: if (boot) Intent().setAction(ACTION_BOOT) else null
+        when (intent?.action) {
             ACTION_INSTALL -> {
                 // First unpack or an upgrade: keep the process (and the CPU) up until it is done.
                 ensureChannel(this)
