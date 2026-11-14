@@ -49,24 +49,13 @@ class UiModeController extends Notifier<UiModeState> {
   }
 
   Future<void> _load() async {
-    var mode = UiMode.native;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      mode = UiMode.values.asNameMap()[prefs.getString(key)] ?? UiMode.native;
-    } catch (_) {
-      // No preferences backend (tests) or an unreadable store: native.
-    }
-    // A switch made while reading back wins over the stored value.
-    if (!state.loaded) state = UiModeState(mode: mode, loaded: true);
+    // 网页模式 is gone: the app always opens the native interface.
+    if (!state.loaded) state = const UiModeState(mode: UiMode.native, loaded: true);
   }
 
-  /// Switches and remembers it for the next launch.
+  /// Kept for callers; only the native home exists now.
   Future<void> set(UiMode mode) async {
-    state = UiModeState(mode: mode, loaded: true);
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(key, mode.name);
-    } catch (_) {}
+    state = const UiModeState(mode: UiMode.native, loaded: true);
   }
 }
 
