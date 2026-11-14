@@ -34,36 +34,10 @@ class ModeHome extends ConsumerStatefulWidget {
 }
 
 class _ModeHomeState extends ConsumerState<ModeHome> {
-  UiMode? _shown;
-  DshWebTarget? _handoff;
-
   @override
   Widget build(BuildContext context) {
-    final mode = ref.watch(uiModeProvider);
-    if (!mode.loaded) {
-      // Read back with the rest of the settings: no frame of the other home.
-      return const AppBackdrop(child: SizedBox.expand());
-    }
-    if (_shown == UiMode.native && mode.mode == UiMode.web) {
-      // Switched from the native interface: its conversation (or its new
-      // chat) opens in the page. A cold start in web mode lands where the
-      // page itself left off.
-      final id = ref.read(currentSessionProvider);
-      _handoff = id == null ? const DshWebTarget(newSession: true) : DshWebTarget(sessionId: id);
-    }
-    _shown = mode.mode;
-    final Widget home = mode.web
-        ? KeyedSubtree(
-            key: const ValueKey(UiMode.web),
-            child: widget.web?.call(_handoff) ?? WebHome(initial: _handoff),
-          )
-        : KeyedSubtree(key: const ValueKey(UiMode.native), child: widget.native ?? const HomeShell());
-    return AnimatedSwitcher(
-      duration: AppMotion.of(context, AppMotion.page),
-      switchInCurve: AppMotion.enter,
-      switchOutCurve: AppMotion.exit,
-      child: home,
-    );
+    // 网页模式 is gone: the home is always the native shell.
+    return widget.native ?? const HomeShell();
   }
 }
 
