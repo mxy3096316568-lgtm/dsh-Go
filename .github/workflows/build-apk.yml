@@ -63,6 +63,15 @@ jobs:
           yes | flutter doctor --android-licenses >/dev/null 2>&1 || true
           flutter doctor -v | sed -n '1,40p'
 
+      # build-apk.sh compiles libtawcroot.so (the opt-in launch method) with this
+      # exact NDK and refuses a release build without it.
+      - name: Install NDK 28.2.13676358
+        run: |
+          set -euo pipefail
+          sdkmanager --install "ndk;28.2.13676358" > /dev/null
+          test -d "$ANDROID_HOME/ndk/28.2.13676358"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
+
       - name: Install runtime build prerequisites
         run: sudo apt-get update -q && sudo apt-get install -y -q xz-utils zstd
 
