@@ -14,10 +14,10 @@ import '../../state/app_mode_state.dart';
 import '../../state/engine_settings_state.dart';
 import '../../state/quick_panel_state.dart';
 import '../../state/settings_state.dart';
+import '../../state/start_window_state.dart';
 import '../../state/table_tint_state.dart';
 import '../../state/ui_mode_state.dart';
 import '../engine_settings/namespace_copy.dart';
-import '../modes/mode_switch.dart';
 import '../engine_settings/schema_form.dart';
 import '../shell/page_frame.dart';
 import '../shell/quick_panel.dart';
@@ -51,19 +51,19 @@ class InterfacePage extends ConsumerWidget {
     final tableTint = ref.watch(tableTintProvider);
     final engine = ref.watch(engineSettingsProvider).value;
     final quickPanel = ref.watch(quickPanelProvider);
-    final startup = ref.watch(appModeProvider.select((s) => s.startup));
+    final startSmall = ref.watch(startWindowProvider);
     return AppPage.list(
       title: l10n.hubSettingsInterface,
       children: [
         SettingsSection(
-          title: l10n.modeSheetTitle,
+          title: '启动方式',
           children: [
-            SettingsSegmentTile<AppMode>(
-              key: const ValueKey('interface-startup-mode'),
-              title: l10n.modeStartup,
-              segments: [for (final m in AppMode.values) PillSegment(m, appModeShortLabel(l10n, m))],
-              selected: startup,
-              onChanged: (m) => unawaited(ref.read(appModeProvider.notifier).setStartup(m)),
+            SettingsSwitchTile(
+              key: const ValueKey('start-in-small-window'),
+              title: '默认小窗打开',
+              subtitle: startSmall ? '打开 App 时先以小窗出现，可以再放大' : '打开 App 时占满全屏',
+              value: startSmall,
+              onChanged: (v) => unawaited(ref.read(startWindowProvider.notifier).setStartInSmallWindow(v)),
             ),
           ],
         ),

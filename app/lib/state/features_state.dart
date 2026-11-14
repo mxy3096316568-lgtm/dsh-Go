@@ -82,7 +82,9 @@ final agentPresetsProvider = FutureProvider.autoDispose<List<AgentPresetInfo>?>(
   final client = _client(ref);
   if (client == null) return null;
   _refreshOn(ref, client, const {'agent-preset/selected', 'settings/document-updated'});
-  return client.listAgentPresets();
+  // 伙伴 presets are no longer offered: the 伙伴小屋 entry is gone.
+  final presets = await client.listAgentPresets();
+  return presets.where((preset) => !preset.id.startsWith('dsh-go-companion')).toList();
 });
 
 /// One preset's YAML.

@@ -32,7 +32,6 @@ import '../common/smooth_size.dart';
 import '../common/read_list_status.dart';
 import '../common/status_dot.dart';
 import '../onboarding/local_install.dart';
-import '../modes/mode_switch.dart';
 import '../remote/host_status.dart';
 import '../remote/host_switcher.dart' show showHostSheet;
 import '../remote/network_details_sheet.dart' show showRemoteNetworkDetails;
@@ -165,16 +164,14 @@ class SessionsDrawer extends ConsumerWidget {
                           child: FittedBox(fit: BoxFit.scaleDown, child: BrandLockup(height: 19)),
                         ),
                       ),
-                      // 模式 and 网页模式, quietly: the one solid element stays 新对话.
-                      const ModeKey(),
-                      const SizedBox(width: 8),
+                      // 网页模式, quietly: the one solid element stays 新对话.
                       const WebModeKey(tier: GlassTier.pill),
                       const SizedBox(width: 8),
                       // When even the lockup's room is not enough, 新对话
                       // keeps its glyph and lets its words go.
                       NewChatButton(
                         onTap: newChat,
-                        compact: NewChatButton.widthOf(context) > box.maxWidth - (36 + 8 + 36 + 8),
+                        compact: NewChatButton.widthOf(context) > box.maxWidth - (36 + 8),
                       ),
                     ],
                   ),

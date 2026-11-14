@@ -1,0 +1,107 @@
+name: Build APK
+
+# Manual release build: bundles the Linux runtime, then builds the APK.
+# The stock ci.yml only runs tests and never produces an installable APK.
+#
+# Deliberately does NOT use tooling/setup-toolchain.sh: that script pulls JDK and
+# Flutter from China mirrors (tuna / storage.flutter-io.cn), which are slow and
+# flaky from a US runner. The actions below fetch the same versions from their
+# primary sources, and Gradle resolves the NDK itself from the runner's SDK.
+
+on:
+  workflow_dispatch:
+    inputs:
+      abi:
+        description: "Target ABI"
+        required: true
+        default: arm64
+        type: choice
+        options:
+          - arm64
+          - x64
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: 3.47.7
+  NODE_VERSION: 24.22.1
+  TZ: Asia/Shanghai
+  UV_USE_IO_URING: 0
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Accept Android SDK licenses
+        run: |
+          yes | flutter doctor --android-licenses >/dev/null 2>&1 || true
+          flutter doctor -v | sed -n '1,40p'
+
+      - name: Install runtime build prerequisites
+        run: sudo apt-get update -q && sudo apt-get install -y -q xz-utils zstd
+
+      # The streaming recognizer's model (Apache-2.0, ~198 MB) normally downloads on
+      # first use. Bundling it into the APK means a fresh install can speak without
+      # waiting, at the cost of APK size.
+      - name: Bundle the speech model
+        run: |
+          set -euo pipefail
+          dest="app/android/app/src/main/assets/asr"
+          mkdir -p "$dest"
+          base="https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20/resolve/98590b7ed6443e77b714204da2757d75e1a642f4"
+          for f in encoder-epoch-99-avg-1.int8.onnx decoder-epoch-99-avg-1.int8.onnx joiner-epoch-99-avg-1.int8.onnx tokens.txt; do
+            echo "fetching $f"
+            curl -fL --retry 3 --retry-delay 5 -o "$dest/$f" "$base/$f"
+          done
+          ls -lh "$dest"
+
+      - name: Build bundled Linux runtime
+        run: |
+          set -euo pipefail
+          abi="${{ github.event.inputs.abi || 'arm64' }}"
+          case "$abi" in
+            arm64) target=arm64-v8a ;;
+            x64) target=x86_64 ;;
+            *) echo "unsupported abi: $abi" >&2; exit 1 ;;
+          esac
+          bash runtime/build-runtime.sh "$target"
+
+      - name: Build APK
+        run: |
+          set -euo pipefail
+          abi="${{ github.event.inputs.abi || 'arm64' }}"
+          DSH_BETA_TOKEN_FILE= bash tooling/build-apk.sh -f "$abi"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-go-${{ github.event.inputs.abi || 'arm64' }}-apk
+          path: app/build/app/outputs/flutter-apk/*.apk
+          if-no-files-found: error
+          retention-days: 7

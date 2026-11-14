@@ -33,3 +33,6 @@ site/build/
 
 # Release assets (tooling/release_assets.py)
 /dist/
+
+# Speech recognizer fetched at build time (.github/workflows/build-apk.yml): ~198 MB
+app/android/app/src/main/assets/asr/

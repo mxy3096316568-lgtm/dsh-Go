@@ -104,19 +104,6 @@ class _PluginsScreenState extends ConsumerState<PluginsScreen> {
         ),
       ],
       slivers: [
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            child: SegmentedPill<PluginsTab>(
-              segments: [
-                PillSegment(PluginsTab.installed, l10n.commonInstalled),
-                PillSegment(PluginsTab.market, l10n.pluginsMarketTitle),
-              ],
-              selected: _tab,
-              onChanged: (t) => setState(() => _tab = t),
-            ),
-          ),
-        ),
         switch (_tab) {
           PluginsTab.installed when host == null && ref.watch(pluginListViewProvider).value == null =>
             const SliverToBoxAdapter(child: _NotConnected()),

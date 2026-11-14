@@ -7,6 +7,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../archive/archive_actions.dart';
 import '../../l10n/l10n.dart';
 import '../../state/engine_settings_state.dart';
 import '../engine_settings/namespace_copy.dart';
@@ -15,6 +16,7 @@ import '../engine_settings/schema_form.dart';
 import '../share_code/profile_share_sheet.dart';
 import '../share_hosted/hosted_links_tile.dart';
 import '../shell/page_frame.dart';
+import '../theme/app_icons.dart';
 import 'settings_widgets.dart';
 import 'usage_stats_section.dart';
 
@@ -35,6 +37,18 @@ class PrivacyPage extends ConsumerWidget {
           children: [
             const HostedLinksSettingsTile(icon: false),
             SettingsTile(spot: Spots.shareConfig, onTap: () => unawaited(showShareProfileSheet(context))),
+            SettingsTile(
+              icon: AppIcons.archive,
+              title: '导出整机存档',
+              subtitle: '规则、技能、插件、对话历史打成一个文件',
+              onTap: () => unawaited(exportArchive(context)),
+            ),
+            SettingsTile(
+              icon: AppIcons.folder,
+              title: '导入整机存档',
+              subtitle: '换手机时把存档导回来',
+              onTap: () => unawaited(importArchive(context)),
+            ),
           ],
         ),
         const UsageStatsSection(),
