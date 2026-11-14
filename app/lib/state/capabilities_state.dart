@@ -11,6 +11,8 @@ class CapabilitiesController extends Notifier<Map<String, bool>> {
   /// The switch keys, in the order the page shows them.
   static const keys = <String>[
     'browser',
+    'cloud',
+    'keepalive',
     'notify',
     'automation',
     'screen',

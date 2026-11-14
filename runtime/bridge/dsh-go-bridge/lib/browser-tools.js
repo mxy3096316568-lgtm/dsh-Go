@@ -18,13 +18,13 @@ function config() {
   return DEFAULT;
 }
 
-async function call(path, body) {
+async function call(path, body, timeoutMs = 15000) {
   const { port, token } = config();
   const res = await fetch(`http://127.0.0.1:${port}${path}`, {
     method: body ? "POST" : "GET",
     headers: { "x-dsh-token": token, "content-type": "application/json" },
     body: body ? JSON.stringify(body) : undefined,
-    signal: AbortSignal.timeout(15000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   let json = {};
   try {
@@ -61,17 +61,17 @@ function tool(spec) {
   };
 }
 
-/** The six tools, in the order the model should reach for them. */
+/** The browser tools, in the order the model should reach for them. */
 function definitions() {
   return [
     tool({
       name: "browser_state",
-      description: "看 App 内置浏览器当前状态：是否打开、在哪个网址。要处理任何网页任务前先调它。",
+      description: "看 App 内置浏览器当前状态：是否打开、在哪个网址、有哪些标签（每个标签带 id 和是否当前）。要处理任何网页任务前先调它。",
       execute: () => call("/state"),
     }),
     tool({
       name: "browser_open",
-      description: "在 App 内置浏览器里打开一个网址。凡是需要网页、登录、点按的任务都默认用它，不必等用户指定；页面会在用户面前自动出现。",
+      description: "在 App 内置浏览器里打开一个网址（在当前标签里打开；没有标签时自动开一个）。凡是需要网页、登录、点按的任务都默认用它，不必等用户指定；页面会在用户面前自动出现。",
       properties: { url: { type: "string", required: true, description: "完整网址，https:// 开头" } },
       execute: async (args) => {
         const result = await call("/open", { url: args.url });
@@ -81,13 +81,18 @@ function definitions() {
     }),
     tool({
       name: "browser_read",
-      description: "读 App 内置浏览器当前页面的正文文字（最多两万字）。",
+      description: "读当前标签页面的正文文字（最多两万字）。",
       execute: () => call("/read"),
     }),
     tool({
       name: "browser_snapshot",
-      description: "列出当前页面上可点的元素，每项带编号 ref 和文字。点按和填表都用这个编号。",
+      description: "列出当前标签页面上可点的元素，每项带编号 ref 和文字。点按、填表、上传都用这个编号。",
       execute: () => call("/snapshot"),
+    }),
+    tool({
+      name: "browser_screenshot",
+      description: "把当前标签的可视区域截成一张图，存到手机的 下载/DSH-Go/screenshots 并返回路径。页面样子看不清、要确认排版或验证码图片时用它。返回 {ok,path,width,height,bytes}，最长边 1600、JPEG、不超过 500KB。",
+      execute: () => call("/screenshot", {}, 30000),
     }),
     tool({
       name: "browser_js",
@@ -109,18 +114,50 @@ function definitions() {
     }),
     tool({
       name: "browser_click",
-      description: "点击页面上编号为 ref 的元素（编号来自 browser_snapshot）。",
+      description: "点击当前标签页面上编号为 ref 的元素（编号来自 browser_snapshot）。",
       properties: { ref: { type: "integer", required: true, description: "browser_snapshot 给出的编号" } },
       execute: (args) => call("/click", { ref: args.ref }),
     }),
     tool({
       name: "browser_type",
-      description: "往编号为 ref 的输入框里填文字（编号来自 browser_snapshot）。",
+      description: "往当前标签页面上编号为 ref 的输入框里填文字（编号来自 browser_snapshot）。",
       properties: {
         ref: { type: "integer", required: true, description: "browser_snapshot 给出的编号" },
         text: { type: "string", required: true, description: "要填进去的文字" },
       },
       execute: (args) => call("/type", { ref: args.ref, text: args.text }),
+    }),
+    tool({
+      name: "browser_upload",
+      description: "把手机上的一个文件填进页面的文件选择框（先 snapshot 找到 <input type=file> 的 ref）。只允许 下载(Download) 和 DCIM 里的文件，扩展名也要在允许列表里；默认会请用户在 App 里确认，用户不在或不确认就返回 denied。",
+      properties: {
+        ref: { type: "integer", required: true, description: "文件选择框的编号（browser_snapshot 给出）" },
+        path: { type: "string", required: true, description: "手机上的完整路径，例如 /sdcard/Download/a.pdf" },
+      },
+      execute: (args) => call("/upload", { ref: args.ref, path: args.path }, 30000),
+    }),
+    tool({
+      name: "browser_tabs",
+      description: "列出浏览器所有标签：id、网址、标题、哪个是当前。下面的标签工具用 id 指定。",
+      execute: () => call("/tabs"),
+    }),
+    tool({
+      name: "browser_tab_open",
+      description: "开一个新标签（最多 8 个）。给 url 就在新标签里打开它，不给就是空白标签。",
+      properties: { url: { type: "string", description: "新标签要打开的网址，省略为空白页" } },
+      execute: (args) => call("/tab-open", { url: args.url }),
+    }),
+    tool({
+      name: "browser_tab_switch",
+      description: "切换到指定标签。切换会重新加载那个标签的网址，页面里的临时填写会丢。",
+      properties: { id: { type: "integer", required: true, description: "browser_tabs 给出的标签 id" } },
+      execute: (args) => call("/tab-switch", { id: args.id }),
+    }),
+    tool({
+      name: "browser_tab_close",
+      description: "关掉一个标签（默认当前标签），关掉当前标签会自动切到相邻的一个；全关掉浏览器就回到未打开状态。",
+      properties: { id: { type: "integer", description: "要关的标签 id，省略为当前标签" } },
+      execute: (args) => call("/tab-close", { id: args.id }),
     }),
   ];
 }

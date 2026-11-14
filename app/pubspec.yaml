@@ -185,6 +185,7 @@ flutter:
     - assets/skills/dsh-go-support/
     - assets/skills/companion-adapt/
     - assets/skills/dsh-go-browser/
+    - assets/skills/dsh-go-cloud/
 
 
   # To add assets to your application, add an assets section, like this:

@@ -36,6 +36,7 @@ import { NativeCore } from "./native/core.js";
 import { effectiveLimits } from "./native/limits.js";
 import { STREAM_PATH, createNativeRoutes } from "./native/routes.js";
 import { registerBrowserTools } from "./browser-tools.js";
+import { registerWebdavTools } from "./webdav-tools.js";
 
 export const name = "dsh-go-bridge";
 
@@ -335,6 +336,18 @@ export function apply(ctx, config) {
         return undefined;
       }
     }, "dsh-go-bridge: browser tools");
+  });
+
+  // 云盘工具: same loopback API, the account and password stay in the app.
+  ctx.inject(["tools"], (toolCtx) => {
+    toolCtx.effect(() => {
+      try {
+        return registerWebdavTools(toolCtx);
+      } catch (error) {
+        toolCtx.logger?.warn?.("dsh-go-bridge: webdav tools not registered", error);
+        return undefined;
+      }
+    }, "dsh-go-bridge: webdav tools");
   });
 
   ctx.inject(["webServer"], (webCtx) => {

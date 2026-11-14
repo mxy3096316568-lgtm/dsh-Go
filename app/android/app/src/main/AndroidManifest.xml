@@ -327,6 +327,15 @@
         </receiver>
         <service android:name=".phone.background.PrivilegedKeepJob" android:permission="android.permission.BIND_JOB_SERVICE" android:exported="false" />
 
+        <!-- 开机自启: brings the engine back in the background after a reboot, when
+             设置 → 能力控制 → 常驻 › 开机后自动运行 is on (runtime/BootReceiver.kt). -->
+        <receiver android:name=".runtime.BootReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
         <!-- Chat artifacts: hands one file at a time to the app that opens it (files/FilesPlugin.kt). -->
         <provider
             android:name="androidx.core.content.FileProvider"

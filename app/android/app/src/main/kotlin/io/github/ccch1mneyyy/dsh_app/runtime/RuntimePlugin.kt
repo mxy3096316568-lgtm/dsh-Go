@@ -107,9 +107,12 @@ class RuntimePlugin :
             "start" -> {
                 val env = (call.argument<Map<String, Any?>>("env") ?: emptyMap())
                     .mapNotNull { (k, v) -> v?.toString()?.let { k to it } }.toMap()
+                val phoneStorage = call.argument<Boolean>("phoneStorage") == true
+                // 开机自启 replays this later (BootReceiver), with no Flutter engine attached.
+                BootStart.remember(appContext, env, phoneStorage)
                 controller.start(
                     env,
-                    phoneStorage = call.argument<Boolean>("phoneStorage") == true,
+                    phoneStorage = phoneStorage,
                     mode = call.argument<String>("mode"),
                     visualReplies = call.argument<Boolean>("visualReplies") != false,
                 )

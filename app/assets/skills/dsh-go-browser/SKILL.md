@@ -10,14 +10,20 @@ App 里有一个自己的浏览器（独立 cookie，和手机浏览器分开）
 
 | 工具 | 用途 |
 |---|---|
-| `browser_state` | 看浏览器开没开、在哪个网址 |
-| `browser_open` | 打开网址 |
+| `browser_state` | 看浏览器开没开、在哪个网址、有哪些标签 |
+| `browser_open` | 打开网址（当前标签） |
 | `browser_read` | 读当前页面正文 |
 | `browser_snapshot` | 列出可点元素，每个带编号 ref |
 | `browser_click` | 点第 ref 个元素 |
 | `browser_type` | 往第 ref 个输入框填字 |
 | `browser_js` | 执行你现写的脚本（可 await、fetch、读 localStorage），一步取数据 |
 | `browser_download` | 下载文件到 下载/DSH-Go |
+| `browser_screenshot` | 截当前页面的图，返回文件路径 |
+| `browser_upload` | 把手机上的文件填进页面的文件选择框 |
+| `browser_tabs` | 列出所有标签 |
+| `browser_tab_open` | 开新标签（最多 8 个） |
+| `browser_tab_switch` | 切换标签 |
+| `browser_tab_close` | 关标签 |
 
 ## 什么时候用
 
@@ -53,6 +59,33 @@ return rows.map(r => r.innerText)
 - 下载前先问用户一句要不要存到手机；小文件、用户明确说要的可以直接下。
 - 单文件上限 1GB，完成才返回。
 
+## 多标签
+
+- 一个任务一个标签：查资料的、正在填表的、等用户确认的，别互相顶掉。
+- 开新页前先 `browser_tabs`；已经开着同一个站就 `browser_tab_switch` 过去，别重复开。
+- 切换标签会重新加载那个网址，页面里没提交的填写会丢——要切换前先提交或先 `browser_read` 存下内容。
+- 关掉当前标签会自动切到相邻的；全关掉浏览器就回到未打开状态（工具返回 `browser_closed`）。
+- 最多 8 个，满了返回 `tabs_full`：先关掉不用的。
+
+## 截图
+
+`browser_screenshot` 截当前可见区域，存在 `下载/DSH-Go/screenshots`，返回 `{ok, path, width, height, bytes}`。
+
+什么时候用：
+
+- 页面 `browser_read` 读出来是空的、或者明显缺内容（图片、图表、canvas、验证码）。
+- 要确认排版有没有对、按钮到底在哪、页面上有没有弹窗遮住。
+- 用户问「现在页面上是什么样」。
+
+注意：只截可视区域（不滚动、不截长图）；7 天前的旧图会被自动清掉。
+
+## 上传文件
+
+1. `browser_snapshot` 找到文件选择框（`<input type=file>`）的编号。
+2. `browser_upload(ref, path)`，`path` 必须真实存在，只允许 `下载(Download)` 和 `DCIM` 里的文件，且扩展名在允许列表里（pdf/docx/xlsx/图片/压缩包等）。
+3. 默认会弹一次确认请用户点「允许上传」——**上传是把文件内容发给网页**，属于「往外发」。
+4. 用户不在 App 里、或点了取消，返回 `denied`：别重试，直接告诉用户需要他在 App 里确认。
+
 ## 确认的分寸
 
 默认不打断用户，直接做；做完在回复里说一句做了什么。
@@ -70,3 +103,4 @@ return rows.map(r => r.innerText)
 - 同一个元素点两次没反应就停，把看到的告诉用户，别死循环。
 - 长页面只取需要的那段，不要把整页贴回对话。
 - 用户说「别用浏览器」或能力控制里关掉浏览器时，不要调用这些工具。
+- 标签别越开越多：超过 3 个时，先想想能不能在同一个标签里用 `browser_js` 解决。

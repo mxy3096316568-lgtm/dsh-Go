@@ -88,6 +88,20 @@ class DshService : Service() {
                     }
                 }
             }
+            ACTION_BOOT -> {
+                // 开机自启: the engine comes up on its own, with no Flutter engine attached.
+                ensureChannel(this)
+                foreground(buildNotification(this, controller))
+                running = true
+                acquireWakeLock()
+                registerNetworkCallback(controller)
+                val saved = BootStart.saved(this)
+                if (saved != null) {
+                    controller.start(saved.first, phoneStorage = saved.second)
+                } else {
+                    controller.startProcess()
+                }
+            }
             else -> {
                 ensureChannel(this)
                 val notification = buildNotification(this, controller)
@@ -183,6 +197,9 @@ class DshService : Service() {
         const val ACTION_INSTALL = "io.github.ccch1mneyyy.dsh_app.INSTALL"
         const val ACTION_INSTALL_DONE = "io.github.ccch1mneyyy.dsh_app.INSTALL_DONE"
         const val ACTION_START = "io.github.ccch1mneyyy.dsh_app.START"
+
+        /** 开机自启: bring the engine back after a reboot, with no UI. */
+        const val ACTION_BOOT = "io.github.ccch1mneyyy.dsh_app.BOOT"
         const val ACTION_STOP = "io.github.ccch1mneyyy.dsh_app.STOP"
         const val ACTION_PHONE_STOP = "io.github.ccch1mneyyy.dsh_app.PHONE_STOP"
         private const val PHONE_TASK_SCHEME = "dsh-phone-task"

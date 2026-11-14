@@ -164,6 +164,9 @@ class _DshAppState extends ConsumerState<DshApp> with WidgetsBindingObserver {
     }
     return MaterialApp(
       title: AppInfo.name,
+      // The browser raises its own dialogs (upload consent, choosing a file)
+      // from the engine's loopback API, where there is no widget context.
+      navigatorKey: BrowserUi.navigatorKey,
       debugShowCheckedModeBanner: false,
       theme: _light,
       darkTheme: _dark,

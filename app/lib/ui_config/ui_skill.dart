@@ -52,6 +52,9 @@ const companionAdaptSkillName = 'companion-adapt';
 /// 内置浏览器的说明书：需要网页 / 登录的任务默认用它。
 const browserSkillName = 'dsh-go-browser';
 
+/// 云盘（WebDAV）的说明书：浏览、上传、下载、搜索。
+const cloudSkillName = 'dsh-go-cloud';
+
 /// The managed line inside SKILL.md's front matter.
 const uiSkillManagedMarker = '# dsh-go:managed';
 
@@ -167,6 +170,7 @@ final extraSkillLoadersProvider = Provider<List<UiSkillBundleLoader>>(
     () => loadUiSkillBundle(null, supportSkillName),
     () => loadUiSkillBundle(null, companionAdaptSkillName),
     () => loadUiSkillBundle(null, browserSkillName),
+    () => loadUiSkillBundle(null, cloudSkillName),
   ],
 );
 
