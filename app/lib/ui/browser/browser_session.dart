@@ -130,6 +130,16 @@ class BrowserApi {
         if (!session.opened) return {'error': 'browser_closed'};
         final raw = await session.run('document.body ? document.body.innerText.slice(0, 20000) : ""');
         return {'text': _stringOf(raw)};
+      case '/js':
+        if (!session.opened) return {'error': 'browser_closed'};
+        final code = (body['code'] as String?) ?? '';
+        if (code.trim().isEmpty) return {'error': 'code required'};
+        final timeoutMs = (body['timeoutMs'] as int?) ?? 10000;
+        return await _runJs(session, code, timeoutMs.clamp(1000, 30000));
+      case '/download':
+        final target = (body['url'] as String?)?.trim();
+        if (target == null || target.isEmpty) return {'error': 'url required'};
+        return await _download(target, body['filename'] as String?);
       case '/click':
         if (!session.opened) return {'error': 'browser_closed'};
         final ref = body['ref'];
@@ -148,6 +158,89 @@ class BrowserApi {
         return {'result': _stringOf(raw)};
       default:
         return {'error': 'unknown path'};
+    }
+  }
+
+
+  static Future<Object?> _runJs(BrowserSession session, String code, int timeoutMs) async {
+    final id = DateTime.now().microsecondsSinceEpoch;
+    final wrapped = '''
+window.__dshJs = { id: $id, done: false };
+(async () => {
+  try {
+    const __v = await (async () => { $code })();
+    let __s;
+    try { __s = JSON.stringify(__v === undefined ? null : __v); } catch (e) { __s = String(__v); }
+    if (__s !== undefined && __s.length > 32768) __s = __s.slice(0, 32768);
+    window.__dshJs = { id: $id, done: true, value: __s };
+  } catch (e) {
+    const line = String(e && e.stack ? e.stack : e).split('\\n')[0];
+    window.__dshJs = { id: $id, done: true, error: line };
+  }
+})();
+true
+''';
+    await session.run(wrapped);
+    final deadline = DateTime.now().add(Duration(milliseconds: timeoutMs));
+    while (DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      final raw = await session.run('JSON.stringify(window.__dshJs || null)');
+      final text = _stringOf(raw);
+      if (text.isEmpty || text == 'null') continue;
+      try {
+        final state = jsonDecode(text);
+        if (state is! Map || state['id'] != id || state['done'] != true) continue;
+        if (state['error'] != null) return {'error': 'js_error', 'message': '${state['error']}'};
+        final value = state['value'];
+        return {'ok': true, 'result': value is String ? value : jsonEncode(value)};
+      } catch (_) {
+        continue;
+      }
+    }
+    return {'error': 'timeout', 'message': '脚本运行超过 ${timeoutMs}ms 还没返回'};
+  }
+
+  static Future<Object?> _download(String url, String? filename) async {
+    try {
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse(url));
+      final response = await request.close();
+      if (response.statusCode >= 400) {
+        return {'error': 'not_found', 'message': '服务器返回 ${response.statusCode}'};
+      }
+      final dir = Directory('/sdcard/Download/DSH-Go');
+      await dir.create(recursive: true);
+      var name = filename?.trim();
+      if (name == null || name.isEmpty) {
+        final segment = Uri.parse(url).pathSegments.isEmpty ? 'download' : Uri.parse(url).pathSegments.last;
+        name = segment.isEmpty ? 'download' : segment;
+      }
+      var file = File('${dir.path}/$name');
+      var index = 1;
+      while (await file.exists()) {
+        final dot = name.lastIndexOf('.');
+        final base = dot > 0 ? name.substring(0, dot) : name;
+        final ext = dot > 0 ? name.substring(dot) : '';
+        file = File('${dir.path}/$base ($index)$ext');
+        index += 1;
+      }
+      final sink = file.openWrite();
+      var bytes = 0;
+      await for (final chunk in response) {
+        bytes += chunk.length;
+        if (bytes > 1024 * 1024 * 1024) {
+          await sink.close();
+          await file.delete();
+          return {'error': 'too_large', 'message': '文件超过 1GB'};
+        }
+        sink.add(chunk);
+      }
+      await sink.close();
+      return {'ok': true, 'path': file.path, 'bytes': bytes, 'mime': response.headers.contentType?.mimeType ?? ''};
+    } on FileSystemException {
+      return {'error': 'denied', 'message': '没有存储权限，无法写入下载目录'};
+    } catch (e) {
+      return {'error': 'unsupported', 'message': '下载失败：$e'};
     }
   }
 
