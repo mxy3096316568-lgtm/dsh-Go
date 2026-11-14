@@ -303,7 +303,7 @@ class CrawlService {
     }
     await session.waitLoaded(const Duration(seconds: 4));
     if ((await session.loadErrorMark()).isNotEmpty) return null;
-    final raw = await BrowserSession.runJs(session, _renderScript, 20000);
+    final raw = await BrowserApi.runJs(session, _renderScript, 20000);
     if (raw is! Map || raw['ok'] != true) return null;
     final result = raw['result'];
     if (result is! Map) return null;

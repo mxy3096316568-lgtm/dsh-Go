@@ -240,7 +240,7 @@ class _KbPageState extends State<KbPage> {
               value: Text(_fmtBytes(_stats.totalBytes)),
             ),
             SettingsTile(
-              icon: AppIcons.clock,
+              icon: AppIcons.bookmark,
               title: '上次重建',
               value: Text(_when(_stats.builtAtMs)),
             ),
