@@ -8,6 +8,7 @@ import '../../state/capabilities_state.dart';
 import '../../state/capability_guard.dart';
 import '../../state/consent_store.dart';
 import '../../state/phone_state.dart';
+import '../../state/sessions_state.dart';
 import '../browser/browser_session.dart';
 import '../phone/phone_control_screen.dart';
 import '../browser/browser_page.dart';
@@ -17,6 +18,7 @@ import '../notify/notify_bridge.dart';
 import '../shell/page_frame.dart';
 import 'consent_page.dart';
 import 'proxy_page.dart';
+import 'watch_page.dart';
 import 'settings_widgets.dart';
 import 'webdav_page.dart';
 
@@ -135,6 +137,12 @@ class CapabilitiesPage extends ConsumerWidget {
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(builder: (_) => const PhoneControlScreen()),
               ),
+            ),
+            SettingsTile(
+              key: const ValueKey('cap-open-watch'),
+              title: '看护',
+              subtitle: '盯一个页面，变了才通知（本机跑）',
+              onTap: () => Navigator.of(context).push(WatchPage.route(ref.read(currentSessionProvider) ?? '')),
             ),
             SettingsTile(
               key: const ValueKey('cap-open-proxy'),

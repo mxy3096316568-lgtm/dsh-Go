@@ -102,8 +102,10 @@ class NotifyPlugin :
                 val group = call.argument<String>("group")
                 val key = call.argument<String>("key")
                 val sessionId = call.argument<String>("sessionId")
-                if (group.isNullOrEmpty() || key.isNullOrEmpty() || sessionId.isNullOrEmpty()) {
-                    return result.error("bad_args", "group, key and sessionId are required", null)
+                // sessionId may be empty: 看护 and other app-side reminders have no session
+                // to open, and the tap then just brings the app up.
+                if (group.isNullOrEmpty() || key.isNullOrEmpty()) {
+                    return result.error("bad_args", "group and key are required", null)
                 }
                 notifier.show(
                     ChatNotifier.Post(
@@ -113,7 +115,7 @@ class NotifyPlugin :
                         title = call.argument<String>("title") ?: AppStrings.APP_NAME,
                         text = call.argument<String>("text") ?: "",
                         publicText = call.argument<String>("publicText") ?: AppStrings.get(appContext, R.string.notify_new_reminder),
-                        sessionId = sessionId,
+                        sessionId = sessionId ?: "",
                         host = call.argument<String>("host") ?: "",
                         kind = call.argument<String>("kind") ?: "",
                         eventId = call.argument<String>("eventId"),

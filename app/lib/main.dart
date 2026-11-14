@@ -11,6 +11,7 @@ import 'diagnostics/app_error_log.dart';
 import 'launch/launch_state.dart';
 import 'state/consent_store.dart';
 import 'state/locale_state.dart';
+import 'state/watch_service.dart';
 import 'ui/common/third_party_licenses.dart';
 import 'ui/fx/metal/metal_shader.dart';
 import 'ui/fx/waves/distortion_wave.dart';
@@ -37,6 +38,8 @@ Future<void> _startApp() async {
   // through AnnotatedRegion(dshSystemOverlay(...)).
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   SystemChrome.setSystemUIOverlayStyle(dshSystemOverlay(PlatformDispatcher.instance.platformBrightness));
+  // 看护: 每分钟看一眼有没有到点的；没建过看护时这一步什么都不做。
+  unawaited(WatchService.instance.start());
   // 授权记录: read now so the chat's approval path can check it synchronously.
   unawaited(ConsentStore.instance.load());
   // 内置浏览器: the loopback API the engine's tools reach.
