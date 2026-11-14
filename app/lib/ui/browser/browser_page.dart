@@ -6,6 +6,9 @@ import 'site_store.dart';
 
 /// 内置浏览器: a WebView of the app's own — its cookies are separate from the
 /// phone's browser, so signing in here is signing in only for this app.
+///
+/// The page can also be left: the assistant keeps driving the same WebView
+/// while this screen is closed.
 class BrowserPage extends StatefulWidget {
   const BrowserPage({super.key, this.initialUrl});
 
@@ -27,46 +30,18 @@ class _BrowserPageState extends State<BrowserPage> {
     ('GitHub', 'https://github.com'),
   ];
 
-  late final WebViewController _controller;
   final _address = TextEditingController();
-  String _url = '';
-  bool _loading = false;
-  List<BrowserSite> _sites = const [];
+  List<BrowserSite> _recent = const [];
+
+  BrowserSession get _session => BrowserSession.instance;
 
   @override
   void initState() {
     super.initState();
-    _controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(const Color(0xFFFFFFFF))
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onPageStarted: (url) {
-            BrowserSession.instance.url.value = url;
-            if (!mounted) return;
-            setState(() {
-              _url = url;
-              _loading = true;
-              _address.text = url;
-            });
-          },
-          onPageFinished: (url) async {
-            BrowserSession.instance.url.value = url;
-            final title = await _controller.getTitle() ?? '';
-            final sites = await SiteStore.record(url: url, title: title);
-            if (mounted) setState(() => _sites = sites);
-            if (!mounted) return;
-            setState(() {
-              _url = url;
-              _loading = false;
-              _address.text = url;
-            });
-          },
-        ),
-      );
-    BrowserSession.instance.attach(_controller);
+    _session.visible.value = true;
+    _address.text = _session.url.value;
     SiteStore.load().then((sites) {
-      if (mounted) setState(() => _sites = sites);
+      if (mounted) setState(() => _recent = sites);
     });
     final initial = widget.initialUrl;
     if (initial != null && initial.isNotEmpty) {
@@ -76,7 +51,7 @@ class _BrowserPageState extends State<BrowserPage> {
 
   @override
   void dispose() {
-    BrowserSession.instance.detach(_controller);
+    _session.visible.value = false;
     _address.dispose();
     super.dispose();
   }
@@ -93,14 +68,15 @@ class _BrowserPageState extends State<BrowserPage> {
 
   void _open(String raw) {
     final url = _normalize(raw);
-    _controller.loadRequest(Uri.parse(url));
-    if (_address.text != url) _address.text = url;
+    _address.text = url;
+    _session.open(url);
     FocusScope.of(context).unfocus();
   }
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final loaded = _session.url.value.isNotEmpty;
     return Scaffold(
       backgroundColor: colors.surface,
       body: SafeArea(
@@ -111,7 +87,7 @@ class _BrowserPageState extends State<BrowserPage> {
               child: Row(
                 children: [
                   IconButton(
-                    tooltip: '关闭',
+                    tooltip: '关闭（浏览器留在后台）',
                     icon: const Icon(Icons.close),
                     onPressed: () => Navigator.of(context).maybePop(),
                   ),
@@ -131,21 +107,21 @@ class _BrowserPageState extends State<BrowserPage> {
                   IconButton(
                     tooltip: '刷新',
                     icon: const Icon(Icons.refresh),
-                    onPressed: () => _controller.reload(),
+                    onPressed: () => _session.controller.reload(),
                   ),
                 ],
               ),
             ),
-            if (_loading) const LinearProgressIndicator(minHeight: 2),
             Expanded(
-              child: _url.isEmpty
-                  ? ListView(
+              child: loaded
+                  ? WebViewWidget(controller: _session.controller)
+                  : ListView(
                       padding: const EdgeInsets.all(16),
                       children: [
-                        if (_sites.isNotEmpty) ...[
+                        if (_recent.isNotEmpty) ...[
                           Text('最近访问', style: Theme.of(context).textTheme.titleMedium),
                           const SizedBox(height: 8),
-                          for (final site in _sites.take(8))
+                          for (final site in _recent.take(8))
                             ListTile(
                               contentPadding: EdgeInsets.zero,
                               title: Text(site.title, maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -165,12 +141,11 @@ class _BrowserPageState extends State<BrowserPage> {
                           ),
                         const SizedBox(height: 16),
                         Text(
-                          '在这里登录过的网站，只在 App 内有效，不会影响手机浏览器。',
+                          '在这里登录过的网站，只在 App 内有效，不会影响手机浏览器。关闭这个页面后浏览器仍在后台，助手还能继续用。',
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
                       ],
-                    )
-                  : WebViewWidget(controller: _controller),
+                    ),
             ),
           ],
         ),
