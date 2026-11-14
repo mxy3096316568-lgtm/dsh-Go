@@ -1,13 +1,11 @@
 package io.github.ccch1mneyyy.dsh_app
 
-import android.app.ActivityOptions
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Color
-import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
 import io.flutter.embedding.android.FlutterActivity
@@ -86,18 +84,6 @@ class MainActivity : FlutterActivity() {
         packageManager.getActivityInfo(ComponentName(this, MainActivity::class.java), PackageManager.GET_META_DATA).metaData
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // 小窗启动: ask the system for a freeform-sized window, then let this instance retire
-        // and the sized one take over. Dart writes the same preference, but by the time Dart
-        // runs the window is already built, so the decision has to be made here.
-        if (savedInstanceState == null &&
-            !intent.getBooleanExtra(EXTRA_SMALL_WINDOW_RELAUNCH, false) &&
-            startInSmallWindow()
-        ) {
-            if (relaunchInSmallWindow()) {
-                finish()
-                return
-            }
-        }
         // 语音模型内置: unpack the bundled recognizer once, off the main thread.
         Thread { BundledAsrSeeder.seedIfNeeded(applicationContext) }.start()
         // 「打开 App 时自动启动」: DSH boots while Flutter starts, not after its first frame.
@@ -230,35 +216,8 @@ class MainActivity : FlutterActivity() {
     /** Flutter produced a frame recently (see RefreshRateService): auto mode follows it. */
     private var framesActive = true
 
-    /** 启动方式: Dart stores the switch in Flutter's own SharedPreferences file. */
-    private fun startInSmallWindow(): Boolean =
-        getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
-            .getBoolean("flutter.start_in_small_window", false)
-
-    /** Opens this activity again with freeform launch bounds; false when the OEM refuses. */
-    private fun relaunchInSmallWindow(): Boolean = try {
-        val metrics = resources.displayMetrics
-        val width = (metrics.widthPixels * 0.72f).toInt()
-        val height = (metrics.heightPixels * 0.58f).toInt()
-        val left = (metrics.widthPixels - width) / 2
-        val top = (metrics.heightPixels - height) / 2
-        val options = ActivityOptions.makeBasic()
-            .setLaunchBounds(Rect(left, top, left + width, top + height))
-        startActivity(
-            Intent(this, MainActivity::class.java).apply {
-                putExtra(EXTRA_SMALL_WINDOW_RELAUNCH, true)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            },
-            options.toBundle(),
-        )
-        true
-    } catch (_: Exception) {
-        false
-    }
-
     companion object {
         private const val ENGINE_ID = "dsh-main"
-        private const val EXTRA_SMALL_WINDOW_RELAUNCH = "dshgo.small_window_relaunch"
 
         /** 设置 › 性能 › 刷新率; the Flutter side owns the stored choice. */
         private var refreshMode = "auto"
