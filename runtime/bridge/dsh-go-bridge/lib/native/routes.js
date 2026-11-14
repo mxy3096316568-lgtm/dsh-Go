@@ -365,7 +365,7 @@ export function createNativeRoutes(core) {
     const panels = new Set(rec.parsed.items.panels.map((p) => p.id));
     if (!current()) return rejectStale();
     if (deferred !== undefined) {
-      return startPending(res, { pkg: body.pkg, id: body.id, streamId: body.stream, scope, panels, source: isPanel ? body.id : undefined, controller, deferred, current, filterPatches });
+      return startPending(res, { pkg: body.pkg, id: body.id, streamId: body.stream, scope, panels, source: isPanel ? body.id : undefined, controller, deferred, current, filterPatches, rec });
     }
     const norm = normalizeEffects(result, { panels, source: isPanel ? body.id : undefined, capabilities: capabilities.options(rec, capabilityConn), userGesture: body.userGesture === true });
     if (!current()) return rejectStale();

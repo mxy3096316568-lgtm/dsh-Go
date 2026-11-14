@@ -97,3 +97,13 @@ await ctx.dshGo.capability('tools', { tool: 'web_search', args: { queries: ['x']
 - 插件技能文档补「宿主能力（v1.4）」并 `sync-skill.mjs` 同步
 - 修两个既有红 CI：`test_input_store.py` 写死 `proot-v5.1.107.98.zip`（已升到 `.102`）→ 按 `PROOT_VERSION` 取键；
   `native-cancel-rejection` 的假 `inject` 无条件执行导致 5 条启动告警 → 改为依赖存在才执行，12 例全过
+
+## 第三轮（2026-11-15 07:30 缺陷清单）修了什么
+
+| # | 现象 | 根因 | 改法 |
+|---|---|---|---|
+| B1 | pending/result 里调用任何 v1.4 能力都立刻 `unavailable`（八项等于不可用） | `startPending` 的签名加了 `rec`，**唯一调用处没传**，延后工作拿到的 `uid/stamp` 是 undefined，守卫恒失败 | 调用处补 `rec`；新增 `native-host-capabilities.test.mjs` 的延后用例（把 `rec` 去掉会红，已本地验证） |
+| B7 | 插件自检工具仍只认 v1.2 能力，声明新能力全报 unknown | `sdk/plugin-kit/lib/bridge/capabilities.js` 是桥接的 vendored 副本，没跟着同步 | `node scripts/sync-bridge.mjs` + `sync-skill.mjs` 同步；kit 的 115 个测试全过 |
+
+B2/B3/B4/B5/B6/B8/B9 在上一轮（`c208529`）已改，见上表；这一轮的包同时包含两者。
+B10（pending 只有静态标签、没有进度）**未做**：需要新的协议消息（运行时更新 label），这轮不加，避免再开一个未验证的口子。

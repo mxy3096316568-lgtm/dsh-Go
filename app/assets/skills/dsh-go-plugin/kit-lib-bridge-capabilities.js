@@ -4,7 +4,28 @@
 import { ID } from "./limits.js";
 import { chars, isPlainObject, toJson } from "./util.js";
 
-export const FEATURES = ["audio", "voice", "micro", "overlay", "files"];
+export const FEATURES = ["audio", "voice", "micro", "overlay", "files",
+  // v1.4 host capabilities (§13): data from the app and actions it performs.
+  ...["sessionText", "selection", "send", "notify", "phone", "tools", "schedule", "pluginFiles"]];
+/** v1.4: capabilities that go through the app (a `host.req`/`host.res` round trip). */
+export const HOST_FEATURES = ["sessionText", "selection", "send", "notify", "phone", "tools", "schedule", "pluginFiles"];
+/** v1.4 limits per host capability. Requests and answers are small; the app owns the data. */
+export const HOST_LIMITS = Object.freeze({
+  perConn: 4,
+  payloadBytes: 4096,
+  caps: Object.freeze({
+    sessionText: { timeoutMs: 8000, responseBytes: 65536 },
+    selection: { timeoutMs: 4000, responseBytes: 8192 },
+    send: { timeoutMs: 4000, responseBytes: 1024 },
+    notify: { timeoutMs: 6000, responseBytes: 1024 },
+    schedule: { timeoutMs: 10000, responseBytes: 4096 },
+    // The app asks the person here, so these wait longer. The bridge does the work
+    // itself once the app allows it.
+    phone: { timeoutMs: 60000, responseBytes: 1024 },
+    tools: { timeoutMs: 60000, responseBytes: 1024 },
+    pluginFiles: { timeoutMs: 4000, responseBytes: 1024 },
+  }),
+});
 /** Capability effect types (`micro` is a data channel, not an effect). */
 export const EFFECT_FEATURES = ["audio", "voice", "overlay"];
 export const PICKER_TYPES = ["pickFile", "pickImage"];

@@ -360,3 +360,26 @@ test('a dropped stream refuses the waiting call instead of hanging', async (t) =
   const result = await invoking;
   assert.equal(result.effects[0].text, 'code:unavailable');
 });
+
+test('a deferred result can use capabilities too (rec reaches startPending)', async (t) => {
+  const f = await fixture(t);
+  f.service.on('go', () => ({
+    pending: { label: 'working' },
+    result: async () => {
+      try {
+        const value = await f.service.capability('selection');
+        return { copy: JSON.stringify({ ok: true, value }) };
+      } catch (error) {
+        return { copy: JSON.stringify({ ok: false, code: error.code, message: error.message }) };
+      }
+    },
+  }));
+  f.onHost(() => ({ ok: true, value: { text: 'deferred selection' } }));
+  const w = await f.ws(['selection']);
+  const invoked = await f.invoke(w);
+  assert.ok(invoked.pending, JSON.stringify(invoked));
+  const done = await w.next((m) => m.t === 'done');
+  const copied = done.effects.find((e) => e.type === 'copy');
+  assert.ok(copied, JSON.stringify(done));
+  assert.deepEqual(JSON.parse(copied.text), { ok: true, value: { text: 'deferred selection' } });
+});
