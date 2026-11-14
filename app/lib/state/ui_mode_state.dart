@@ -11,7 +11,6 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../l10n/l10n.dart';
 import 'web_target.dart';

@@ -9,7 +9,6 @@ import 'app.dart';
 import 'dev/frame_probe.dart';
 import 'diagnostics/app_error_log.dart';
 import 'launch/launch_state.dart';
-import 'links/page_links.dart' show registerPageLink;
 import 'state/locale_state.dart';
 import 'ui/common/third_party_licenses.dart';
 import 'ui/fx/metal/metal_shader.dart';

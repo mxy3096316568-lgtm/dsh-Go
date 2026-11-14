@@ -42,9 +42,12 @@ class KeepAlivePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 result.success(status(app))
             }
             "ensureService" -> {
-                if (!DshService.isRunning) {
+                // Start with the environment Dart last used; without one the engine
+                // would come up misconfigured, so it is left to the app's own start.
+                val saved = BootStart.saved(app)
+                if (!DshService.isRunning && saved != null) {
                     runCatching {
-                        val intent = Intent(app, DshService::class.java)
+                        val intent = Intent(app, DshService::class.java).setAction(DshService.ACTION_BOOT)
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                             app.startForegroundService(intent)
                         } else {

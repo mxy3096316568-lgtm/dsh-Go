@@ -34,7 +34,7 @@ App 里有一个自己的浏览器（独立 cookie，和手机浏览器分开）
 ## 怎么用
 
 1. `browser_state` 看状态。
-2. `browser_open(url)` 打开目标（页面会自动出现在用户面前）。
+2. `browser_open(url)` 打开目标（页面在后台加载，不打断对话；用户点地球图标能看到）。
 3. 需要内容时 `browser_read`；需要操作时先 `browser_snapshot` 拿编号。
 4. `browser_click(ref)` / `browser_type(ref, text)` 按编号操作。
 5. 操作后再 `browser_read` 确认结果。

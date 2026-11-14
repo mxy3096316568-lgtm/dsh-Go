@@ -8,7 +8,6 @@ import '../../plugins/native/native_state.dart';
 import '../../state/hosts_state.dart';
 import '../../state/plugins_state.dart';
 import '../common/ask_ai.dart';
-import '../common/segmented_pill.dart';
 import '../features/feature_kit.dart';
 import '../shell/page_frame.dart';
 import '../theme/app_icons.dart';

@@ -71,7 +71,7 @@ function definitions() {
     }),
     tool({
       name: "browser_open",
-      description: "在 App 内置浏览器里打开一个网址（在当前标签里打开；没有标签时自动开一个）。凡是需要网页、登录、点按的任务都默认用它，不必等用户指定；页面会在用户面前自动出现。",
+      description: "在 App 内置浏览器里打开一个网址（在当前标签里打开；没有标签时自动开一个）。凡是需要网页、登录、点按的任务都默认用它，不必等用户指定。页面在后台加载，不打断用户对话；用户要看时点输入框旁的地球图标。",
       properties: { url: { type: "string", required: true, description: "完整网址，https:// 开头" } },
       execute: async (args) => {
         const result = await call("/open", { url: args.url });

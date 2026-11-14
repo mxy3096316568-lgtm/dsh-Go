@@ -10,13 +10,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/l10n.dart';
-import '../../state/sessions_state.dart';
 import '../../state/ui_mode_state.dart';
 import '../shell/home_shell.dart';
 import '../shell/page_frame.dart';
 import '../theme/app_icons.dart';
 import '../theme/theme.dart';
-import 'web_home.dart';
 import 'web_target.dart';
 
 /// The app's home in the chosen 界面.
