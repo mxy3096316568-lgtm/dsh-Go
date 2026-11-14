@@ -9,6 +9,7 @@ import 'app.dart';
 import 'dev/frame_probe.dart';
 import 'diagnostics/app_error_log.dart';
 import 'launch/launch_state.dart';
+import 'state/consent_store.dart';
 import 'state/locale_state.dart';
 import 'ui/common/third_party_licenses.dart';
 import 'ui/fx/metal/metal_shader.dart';
@@ -36,6 +37,8 @@ Future<void> _startApp() async {
   // through AnnotatedRegion(dshSystemOverlay(...)).
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   SystemChrome.setSystemUIOverlayStyle(dshSystemOverlay(PlatformDispatcher.instance.platformBrightness));
+  // 授权记录: read now so the chat's approval path can check it synchronously.
+  unawaited(ConsentStore.instance.load());
   // 内置浏览器: the loopback API the engine's tools reach.
   BrowserApi.publishSync();
   unawaited(BrowserApi.start());

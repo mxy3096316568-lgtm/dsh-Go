@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 
 import '../../../l10n/host_text.dart';
 import '../../../l10n/l10n.dart';
+import '../../../state/consent_store.dart';
 import '../../common/risk_notice.dart';
 import '../../theme/app_icons.dart';
 import '../../theme/theme.dart';
@@ -18,6 +19,9 @@ typedef ApprovalResponder = Future<void> Function(ApprovalRequest request, Appro
 
 /// "本对话都允许":允许这一次,并让本对话之后的审批都自动放行。
 typedef ApprovalAllowAll = Future<void> Function(ApprovalRequest request);
+
+/// 「总是允许」:在本机记一条永久授权,再放行这一次;之后同类只读请求不再问。
+typedef ApprovalAlways = Future<void> Function(ApprovalRequest request);
 
 /// 审批卡:**屏幕上最显眼的东西,但不靠大红色**。
 ///
@@ -37,13 +41,23 @@ typedef ApprovalAllowAll = Future<void> Function(ApprovalRequest request);
 /// └──────────────────────────────────┘
 /// ```
 class ApprovalCard extends StatefulWidget {
-  const ApprovalCard({super.key, required this.request, required this.onRespond, this.onAllowAll, this.view});
+  const ApprovalCard({
+    super.key,
+    required this.request,
+    required this.onRespond,
+    this.onAllowAll,
+    this.onAlwaysAllow,
+    this.view,
+  });
 
   final ApprovalRequest request;
   final ApprovalResponder onRespond;
 
   /// null 时不显示"本对话都允许"。
   final ApprovalAllowAll? onAllowAll;
+
+  /// null 时不显示「总是允许」;只读类工具才给这个入口。
+  final ApprovalAlways? onAlwaysAllow;
 
   /// 对应的工具调用(有的话用它的命令 / 路径做正文)。
   final ToolView? view;
@@ -72,6 +86,30 @@ class _ApprovalCardState extends State<ApprovalCard> {
     if (!await confirmRisk(context, RiskNotices.allowForChat) || !mounted) return;
     setState(() => _busy = ApprovalDecision.allowOnce);
     await allowAll(widget.request);
+    if (mounted) setState(() => _busy = null);
+  }
+
+  Future<void> _alwaysAllow() async {
+    final always = widget.onAlwaysAllow;
+    if (_busy != null || always == null) return;
+    HapticFeedback.selectionClick();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('以后这个工具都不再问？'),
+        content: Text(
+          '「${widget.view?.name ?? widget.request.toolName}」会记进授权记录,之后同类请求直接放行。'
+          '花钱、删除、对外发送的动作不在其中。\n\n授权记录: 设置 → 帮助与关于 → 能力控制 → 授权记录,随时可以撤销。',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('取消')),
+          FilledButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('总是允许')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _busy = ApprovalDecision.allowOnce);
+    await always(widget.request);
     if (mounted) setState(() => _busy = null);
   }
 
@@ -175,6 +213,20 @@ class _ApprovalCardState extends State<ApprovalCard> {
                       ),
                       child: Text(l10n.chatAllowForChat),
                     ),
+                  ),
+                ),
+              if (widget.onAlwaysAllow != null && ConsentStore.toolRememberable(widget.view?.name ?? widget.request.toolName))
+                Center(
+                  child: TextButton(
+                    key: const ValueKey('approval-always'),
+                    onPressed: _busy == null ? _alwaysAllow : null,
+                    style: TextButton.styleFrom(
+                      foregroundColor: colors.onSurfaceVariant,
+                      minimumSize: const Size(0, 40),
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      textStyle: theme.textTheme.labelMedium?.copyWith(fontSize: 13),
+                    ),
+                    child: const Text('总是允许（永久）'),
                   ),
                 ),
             ],

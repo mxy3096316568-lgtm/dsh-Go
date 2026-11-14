@@ -9,6 +9,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 
 import '../../state/capability_guard.dart';
+import '../../state/consent_store.dart';
 import '../kb/kb_crawl.dart';
 import '../kb/kb_index.dart';
 import '../notify/notify_bridge.dart';
@@ -331,23 +332,36 @@ class BrowserSession {
     final file = File(path);
     final problem = _uploadProblem(file);
     if (problem != null) return problem;
+    final name = file.uri.pathSegments.last;
     if (confirmUploads) {
-      if (!BrowserUi.hasUi) {
-        return {
-          'error': 'denied',
-          'message': '上传会把文件内容发给网页，需要用户在 App 里点确认；请让用户打开浏览器页面后重试',
-        };
+      final host = Uri.tryParse(url.value)?.host ?? '';
+      await ConsentStore.instance.load();
+      // 「总是允许」按站点记：同一个站点反复传文件时不打断，但授权记录里能看见、能撤。
+      final remembered = host.isNotEmpty && ConsentStore.instance.has('upload:$host');
+      if (!remembered) {
+        if (!BrowserUi.hasUi) {
+          return {
+            'error': 'denied',
+            'message': '上传会把文件内容发给网页，需要用户在 App 里点确认；请让用户打开浏览器页面后重试',
+          };
+        }
+        final choice = await BrowserUi.confirmUpload(name, host.isEmpty ? '这个页面' : host);
+        if (choice == UploadConsent.deny) return {'error': 'denied', 'message': '用户取消了这个文件的上传'};
+        if (choice == UploadConsent.always && host.isNotEmpty) {
+          await ConsentStore.instance.remember(
+            ConsentGrant(
+              kind: 'upload',
+              scope: host,
+              label: '上传到 $host',
+              createdAtMs: DateTime.now().millisecondsSinceEpoch,
+              sensitive: true,
+              requires: const <String>['browser', 'files'],
+            ),
+          );
+        }
       }
-      final host = Uri.tryParse(url.value)?.host ?? '这个页面';
-      final allowed = await BrowserUi.confirm(
-        '上传文件',
-        '要把「${file.uri.pathSegments.last}」传到 $host 吗？上传后这个页面就能读到它的内容。',
-        yes: '允许上传',
-      );
-      if (!allowed) return {'error': 'denied', 'message': '用户取消了这个文件的上传'};
     }
     final bytes = await file.readAsBytes();
-    final name = file.uri.pathSegments.last;
     final mime = BrowserUi.mimeFor(name);
     final base64Data = base64Encode(bytes);
     // A multi-megabyte argument would ride in one evaluateJavaScript call; hand it
@@ -987,6 +1001,9 @@ true
 }
 
 /// Dialogs the browser raises while a tool drives it.
+/// 上传确认的答案。总是允许按站点记进授权记录，可撤销。
+enum UploadConsent { deny, once, always }
+
 class BrowserUi {
   /// The app's navigator, set once the app is built (app.dart).
   static GlobalKey<NavigatorState>? navigatorKey;
@@ -1012,6 +1029,31 @@ class BrowserUi {
       ),
     );
     return answer ?? false;
+  }
+
+  /// 上传确认的三个答案：不传、只这次、这个站点以后都允许。
+  static Future<UploadConsent> confirmUpload(String fileName, String host) async {
+    final page = context;
+    if (page == null) return UploadConsent.deny;
+    final answer = await showDialog<UploadConsent>(
+      context: page,
+      builder: (context) => AlertDialog(
+        title: const Text('上传文件'),
+        content: Text('要把「$fileName」传到 $host 吗？上传后这个页面就能读到它的内容。'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(UploadConsent.deny), child: const Text('取消')),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(UploadConsent.always),
+            child: const Text('总是允许（这个站点）'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(UploadConsent.once),
+            child: const Text('允许本次'),
+          ),
+        ],
+      ),
+    );
+    return answer ?? UploadConsent.deny;
   }
 
   /// The person tapped a file input: a short sheet of recent allowed files.

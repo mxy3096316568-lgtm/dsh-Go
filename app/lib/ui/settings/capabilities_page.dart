@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../runtime/runtime_state.dart';
 import '../../state/capabilities_state.dart';
 import '../../state/capability_guard.dart';
+import '../../state/consent_store.dart';
 import '../../state/phone_state.dart';
 import '../browser/browser_session.dart';
 import '../phone/phone_control_screen.dart';
@@ -14,6 +15,7 @@ import '../kb/kb_page.dart';
 import '../keepalive/keepalive_bridge.dart';
 import '../notify/notify_bridge.dart';
 import '../shell/page_frame.dart';
+import 'consent_page.dart';
 import 'proxy_page.dart';
 import 'settings_widgets.dart';
 import 'webdav_page.dart';
@@ -51,6 +53,8 @@ class CapabilitiesPage extends ConsumerWidget {
   Future<void> _toggle(WidgetRef ref, String key, bool value) async {
     await ref.read(capabilitiesProvider.notifier).set(key, value);
     if (key == 'browser' && !value) await BrowserSession.instance.abort();
+    // 关掉能力时，依赖它的「总是允许」一起失效，别留下开关关了授权还在的缝。
+    await ConsentStore.instance.pruneDisabled();
   }
 
   /// 屏幕控制 reads the 手机操控 state; it owns no switch of its own.
@@ -172,6 +176,12 @@ class CapabilitiesPage extends ConsumerWidget {
               title: '最近的拒绝',
               subtitle: '哪个开关在什么时候拦了哪个工具',
               onTap: () => _showDenials(context),
+            ),
+            SettingsTile(
+              key: const ValueKey('cap-consents'),
+              title: '授权记录',
+              subtitle: '谁被「总是允许」了、什么时候、怎么撤销',
+              onTap: () => Navigator.of(context).push(ConsentPage.route()),
             ),
           ],
         ),

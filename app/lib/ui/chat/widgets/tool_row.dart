@@ -66,6 +66,7 @@ class ToolRow extends StatefulWidget {
     required this.item,
     required this.onRespond,
     this.onAllowAll,
+    this.onAlwaysAllow,
     this.autoAnswered = const {},
     this.onOpenSubagent,
     this.card = ToolCardPlacement.inline,
@@ -80,6 +81,9 @@ class ToolRow extends StatefulWidget {
 
   /// 审批卡上的"本对话都允许";null 时不显示。
   final ApprovalAllowAll? onAllowAll;
+
+  /// 审批卡上的「总是允许（永久）」;null 时不显示。
+  final ApprovalAlways? onAlwaysAllow;
 
   /// 本机已自动允许、正等 Host 撤回的审批:不再出卡片,行尾按运行中显示。
   final Set<String> autoAnswered;
@@ -174,6 +178,7 @@ class _ToolRowState extends State<ToolRow> {
                 view: v,
                 onRespond: widget.onRespond,
                 onAllowAll: widget.onAllowAll,
+                onAlwaysAllow: widget.onAlwaysAllow,
               ),
             ),
           ),
@@ -622,6 +627,7 @@ class ToolGroup extends StatefulWidget {
     required this.tools,
     required this.onRespond,
     this.onAllowAll,
+    this.onAlwaysAllow,
     this.autoAnswered = const {},
     this.onOpenSubagent,
     this.live = false,
@@ -631,6 +637,7 @@ class ToolGroup extends StatefulWidget {
   final bool live;
   final ApprovalResponder onRespond;
   final ApprovalAllowAll? onAllowAll;
+  final ApprovalAlways? onAlwaysAllow;
   final Set<String> autoAnswered;
   final SubagentOpener? onOpenSubagent;
 
@@ -677,6 +684,7 @@ class _ToolGroupState extends State<ToolGroup> {
     item: tool,
     onRespond: widget.onRespond,
     onAllowAll: widget.onAllowAll,
+    onAlwaysAllow: widget.onAlwaysAllow,
     autoAnswered: widget.autoAnswered,
     onOpenSubagent: widget.onOpenSubagent,
   );

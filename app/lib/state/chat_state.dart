@@ -11,6 +11,7 @@ import '../usage/usage_stats.dart';
 import 'attachments.dart';
 import 'chat_error_text.dart';
 import 'connection_state.dart';
+import 'consent_store.dart';
 import 'hosts_state.dart';
 import 'models_state.dart';
 import 'notify_state.dart' show appForegroundProvider;
@@ -1011,6 +1012,8 @@ class ChatController extends Notifier<ChatState> {
     switch (event) {
       case ApprovalRequestedEvent(:final request) when _autoApprove:
         unawaited(_autoAllow(request));
+      case ApprovalRequestedEvent(:final request) when ConsentStore.instance.has('tool:${request.toolName}'):
+        unawaited(_autoAllow(request));
       case HostRequestCancelledEvent(:final eventId) when _autoAnswered.contains(eventId):
         _autoAnswered = Set.unmodifiable({..._autoAnswered}..remove(eventId));
       default:
@@ -1043,6 +1046,24 @@ class ChatController extends Notifier<ChatState> {
   Future<void> allowAll(ApprovalRequest request) async {
     setAutoApprove(true);
     await _autoAllow(request);
+  }
+
+  /// 「总是允许（永久）」:把这条只读类工具记进本机授权,再放行这一次。
+  /// 之后的同类请求在 [_trackApprovals] 里直接放行;授权记录页可以撤销。
+  Future<void> alwaysAllow(ApprovalRequest request) async {
+    final name = request.toolName;
+    if (ConsentStore.toolRememberable(name)) {
+      await ConsentStore.instance.remember(
+        ConsentGrant(
+          kind: 'tool',
+          scope: name,
+          label: '工具：$name',
+          createdAtMs: DateTime.now().millisecondsSinceEpoch,
+          requires: ConsentStore.requiresForTool(name),
+        ),
+      );
+    }
+    await respond(request, ApprovalDecision.allowOnce);
   }
 
   /// Turns auto-approve on (answering what is already pending) or off.

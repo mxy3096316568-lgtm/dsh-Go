@@ -352,6 +352,9 @@ class _ChatListState extends ConsumerState<ChatList> with SingleTickerProviderSt
   Future<void> _allowAll(ApprovalRequest request) =>
       ref.read(chatProvider(widget.sessionId).notifier).allowAll(request);
 
+  Future<void> _alwaysAllow(ApprovalRequest request) =>
+      ref.read(chatProvider(widget.sessionId).notifier).alwaysAllow(request);
+
   Future<void> _answer(UserQuestionRequest request, List<QuestionAnswer> answers) =>
       ref.read(chatProvider(widget.sessionId).notifier).answer(request, answers);
 
@@ -1416,6 +1419,7 @@ class _ChatListState extends ConsumerState<ChatList> with SingleTickerProviderSt
         card: card,
         onRespond: _respond,
         onAllowAll: _allowAll,
+        onAlwaysAllow: _alwaysAllow,
         autoAnswered: _autoAnswered,
         onOpenSubagent: _openSubagent,
       ),
@@ -1424,6 +1428,7 @@ class _ChatListState extends ConsumerState<ChatList> with SingleTickerProviderSt
         live: live,
         onRespond: _respond,
         onAllowAll: _allowAll,
+        onAlwaysAllow: _alwaysAllow,
         autoAnswered: _autoAnswered,
         onOpenSubagent: _openSubagent,
       ),
@@ -1437,7 +1442,12 @@ class _ChatListState extends ConsumerState<ChatList> with SingleTickerProviderSt
       ChangeCardRow(:final files) => ChangeCard(files: files),
       ArtifactCardRow(:final group) => ArtifactCard(sessionId: widget.sessionId, group: group),
       CommandNoticeRow(:final notice) => CommandRow(notice: notice),
-      ApprovalRow(:final request) => ApprovalCard(request: request, onRespond: _respond, onAllowAll: _allowAll),
+      ApprovalRow(:final request) => ApprovalCard(
+        request: request,
+        onRespond: _respond,
+        onAllowAll: _allowAll,
+        onAlwaysAllow: _alwaysAllow,
+      ),
       QuestionRow(:final request) => _InlineEditorReveal(
         onShow: _revealInlineEditor,
         child: QuestionCard(request: request, onAnswer: _answer, onReject: _rejectQuestion),
