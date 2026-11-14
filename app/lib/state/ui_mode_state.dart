@@ -44,13 +44,8 @@ class UiModeController extends Notifier<UiModeState> {
 
   @override
   UiModeState build() {
-    unawaited(_load());
-    return const UiModeState();
-  }
-
-  Future<void> _load() async {
-    // 网页模式 is gone: the app always opens the native interface.
-    if (!state.loaded) state = const UiModeState(mode: UiMode.native, loaded: true);
+    // 网页模式 is gone: there is only the native home, and it is always ready.
+    return const UiModeState(mode: UiMode.native, loaded: true);
   }
 
   /// Kept for callers; only the native home exists now.
