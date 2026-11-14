@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
+import 'browser_session.dart';
+
 /// 内置浏览器: a WebView of the app's own — its cookies are separate from the
 /// phone's browser, so signing in here is signing in only for this app.
 class BrowserPage extends StatefulWidget {
@@ -38,6 +40,7 @@ class _BrowserPageState extends State<BrowserPage> {
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageStarted: (url) {
+            BrowserSession.instance.url.value = url;
             if (!mounted) return;
             setState(() {
               _url = url;
@@ -46,6 +49,7 @@ class _BrowserPageState extends State<BrowserPage> {
             });
           },
           onPageFinished: (url) {
+            BrowserSession.instance.url.value = url;
             if (!mounted) return;
             setState(() {
               _url = url;
@@ -55,6 +59,7 @@ class _BrowserPageState extends State<BrowserPage> {
           },
         ),
       );
+    BrowserSession.instance.attach(_controller);
     final initial = widget.initialUrl;
     if (initial != null && initial.isNotEmpty) {
       _open(initial);
@@ -63,6 +68,7 @@ class _BrowserPageState extends State<BrowserPage> {
 
   @override
   void dispose() {
+    BrowserSession.instance.detach(_controller);
     _address.dispose();
     super.dispose();
   }
