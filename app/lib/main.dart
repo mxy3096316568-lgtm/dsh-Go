@@ -15,6 +15,7 @@ import 'ui/common/third_party_licenses.dart';
 import 'ui/fx/metal/metal_shader.dart';
 import 'ui/fx/waves/distortion_wave.dart';
 import 'ui/settings/font_licenses.dart';
+import 'ui/browser/browser_session.dart';
 import 'ui/theme/theme.dart';
 
 Future<void> main() => runWithFrameProbe(_startApp);
@@ -36,5 +37,7 @@ Future<void> _startApp() async {
   // through AnnotatedRegion(dshSystemOverlay(...)).
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   SystemChrome.setSystemUIOverlayStyle(dshSystemOverlay(PlatformDispatcher.instance.platformBrightness));
+  // 内置浏览器: the loopback API the engine's tools reach.
+  unawaited(BrowserApi.publish().then((_) => BrowserApi.start()));
   runApp(const ProviderScope(child: DshApp()));
 }
