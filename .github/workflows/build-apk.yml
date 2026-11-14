@@ -26,6 +26,8 @@ permissions:
 env:
   FLUTTER_VERSION: 3.47.7
   NODE_VERSION: 24.22.1
+  # 内置代理's kernel (mihomo, GPL-3.0): bundled as libmihomo.so in jniLibs.
+  MIHOMO_VERSION: v1.19.34
   TZ: Asia/Shanghai
   UV_USE_IO_URING: 0
   # The runner reaches Maven Central and Google directly; the Aliyun mirrors
@@ -123,6 +125,24 @@ jobs:
             curl -fL --retry 3 --retry-delay 5 -o "$dest/$f" "$base/$f"
           done
           ls -lh "$dest"
+
+      # 内置代理: mihomo as jniLibs/libmihomo.so — the one place Android lets an app
+      # execute from (extractNativeLibs=true, useLegacyPackaging=true).
+      - name: Bundle the proxy kernel
+        run: |
+          set -euo pipefail
+          abi="${{ github.event.inputs.abi || 'arm64' }}"
+          case "$abi" in
+            arm64) asset="mihomo-android-arm64-v8"; dir="arm64-v8a" ;;
+            x64)   asset="mihomo-android-amd64";    dir="x86_64" ;;
+            *) echo "unsupported abi: $abi" >&2; exit 1 ;;
+          esac
+          mkdir -p "app/android/app/src/main/jniLibs/$dir"
+          url="https://github.com/MetaCubeX/mihomo/releases/download/${MIHOMO_VERSION}/${asset}-${MIHOMO_VERSION}.gz"
+          curl -fsSL --retry 3 --retry-delay 5 -o /tmp/mihomo.gz "$url"
+          gunzip -f /tmp/mihomo.gz
+          install -m 755 /tmp/mihomo "app/android/app/src/main/jniLibs/$dir/libmihomo.so"
+          ls -lh "app/android/app/src/main/jniLibs/$dir/libmihomo.so"
 
       - name: Build bundled Linux runtime
         run: |

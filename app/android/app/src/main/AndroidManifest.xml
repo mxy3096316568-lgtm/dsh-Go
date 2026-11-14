@@ -327,6 +327,17 @@
         </receiver>
         <service android:name=".phone.background.PrivilegedKeepJob" android:permission="android.permission.BIND_JOB_SERVICE" android:exported="false" />
 
+        <!-- 通知中枢: reads notifications after the person grants 通知使用权 in the system list. -->
+        <service
+            android:name=".notifyreader.NotificationReaderService"
+            android:label="DSH Go 通知"
+            android:exported="true"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
         <!-- 开机自启: brings the engine back in the background after a reboot, when
              设置 → 能力控制 → 常驻 › 开机后自动运行 is on (runtime/BootReceiver.kt). -->
         <receiver android:name=".runtime.BootReceiver" android:exported="true">

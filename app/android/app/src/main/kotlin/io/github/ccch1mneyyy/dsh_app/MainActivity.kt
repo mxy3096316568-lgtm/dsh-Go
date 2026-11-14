@@ -63,6 +63,8 @@ class MainActivity : FlutterActivity() {
             engine.plugins.add(io.github.ccch1mneyyy.dsh_app.web.WebFilesPlugin())
             engine.plugins.add(io.github.ccch1mneyyy.dsh_app.web.BrowserShotPlugin())
             engine.plugins.add(io.github.ccch1mneyyy.dsh_app.keepalive.KeepAlivePlugin())
+            engine.plugins.add(io.github.ccch1mneyyy.dsh_app.proxy.ProxyPlugin())
+            engine.plugins.add(io.github.ccch1mneyyy.dsh_app.notifyreader.NotificationReaderPlugin())
             engine.plugins.add(io.github.ccch1mneyyy.dsh_app.launch.LaunchPlugin())
             engine.plugins.add(io.github.ccch1mneyyy.dsh_app.launch.LaunchClipPlugin())
             engine.plugins.add(io.github.ccch1mneyyy.dsh_app.icons.PictureShortcutPlugin())

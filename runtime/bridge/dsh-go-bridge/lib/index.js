@@ -37,6 +37,7 @@ import { effectiveLimits } from "./native/limits.js";
 import { STREAM_PATH, createNativeRoutes } from "./native/routes.js";
 import { registerBrowserTools } from "./browser-tools.js";
 import { registerWebdavTools } from "./webdav-tools.js";
+import { registerNotifyTools } from "./notify-tools.js";
 
 export const name = "dsh-go-bridge";
 
@@ -336,6 +337,18 @@ export function apply(ctx, config) {
         return undefined;
       }
     }, "dsh-go-bridge: browser tools");
+  });
+
+  // 通知中枢工具: what the app's notification listener has read.
+  ctx.inject(["tools"], (toolCtx) => {
+    toolCtx.effect(() => {
+      try {
+        return registerNotifyTools(toolCtx);
+      } catch (error) {
+        toolCtx.logger?.warn?.("dsh-go-bridge: notify tools not registered", error);
+        return undefined;
+      }
+    }, "dsh-go-bridge: notify tools");
   });
 
   // 云盘工具: same loopback API, the account and password stay in the app.

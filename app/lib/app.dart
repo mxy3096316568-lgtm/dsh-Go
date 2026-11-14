@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'ui/browser/browser_session.dart';
+import 'ui/proxy/proxy_service.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -70,6 +71,8 @@ class _DshAppState extends ConsumerState<DshApp> with WidgetsBindingObserver {
     // while it is actually drawing (see RefreshRateService).
     RefreshRateService.instance.start();
     BrowserUi.navigatorKey = _navigatorKey;
+    // 内置代理: restore the last state (a saved subscription that was on comes back).
+    unawaited(ProxyService.load());
     WidgetsBinding.instance.addObserver(this);
   }
 

@@ -7,7 +7,9 @@ import '../../runtime/runtime_state.dart';
 import '../../state/capabilities_state.dart';
 import '../browser/browser_page.dart';
 import '../keepalive/keepalive_bridge.dart';
+import '../notify/notify_bridge.dart';
 import '../shell/page_frame.dart';
+import 'proxy_page.dart';
 import 'settings_widgets.dart';
 import 'webdav_page.dart';
 
@@ -60,6 +62,12 @@ class CapabilitiesPage extends ConsumerWidget {
               subtitle: 'WebDAV 网盘：地址、账号和密码',
               onTap: () => Navigator.of(context).push(WebdavPage.route()),
             ),
+            SettingsTile(
+              key: const ValueKey('cap-open-proxy'),
+              title: '内置代理',
+              subtitle: 'mihomo，只对 DSH Go 生效（默认关）',
+              onTap: () => Navigator.of(context).push(ProxyPage.route()),
+            ),
           ],
         ),
         SettingsSection(
@@ -75,6 +83,7 @@ class CapabilitiesPage extends ConsumerWidget {
               ),
           ],
         ),
+        const NotifySection(),
         const KeepAliveSection(),
         SettingsSection(
           title: '全部',
@@ -194,6 +203,100 @@ class _KeepAliveSectionState extends ConsumerState<KeepAliveSection> {
               : '先正常启动一次引擎，之后才能开机自启',
           value: _status.boot,
           onChanged: _setBoot,
+        ),
+      ],
+    );
+  }
+}
+
+/// 通知中枢: the listener's permission, and a peek at what it has seen.
+class NotifySection extends StatefulWidget {
+  const NotifySection({super.key});
+
+  @override
+  State<NotifySection> createState() => _NotifySectionState();
+}
+
+class _NotifySectionState extends State<NotifySection> {
+  bool _granted = false;
+  int _count = 0;
+  bool _ready = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  Future<void> _refresh() async {
+    final status = await NotifyBridge.status();
+    if (!mounted) return;
+    setState(() {
+      _granted = status.granted;
+      _count = status.count;
+      _ready = true;
+    });
+  }
+
+  Future<void> _open() async {
+    await NotifyBridge.openSettings();
+    await Future<void>.delayed(const Duration(seconds: 2));
+    await _refresh();
+  }
+
+  Future<void> _preview() async {
+    final items = await NotifyBridge.list(limit: 15);
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('最近通知'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: items.isEmpty
+              ? const Text('还没有收到通知。授权后新通知才会进来。')
+              : SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (final item in items)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Text(item.line, style: const TextStyle(fontSize: 12)),
+                        ),
+                    ],
+                  ),
+                ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('关闭')),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SettingsSection(
+      title: '通知',
+      children: [
+        SettingsTile(
+          key: const ValueKey('notify-grant'),
+          title: '通知读取权限',
+          subtitle: !_ready
+              ? '正在检查…'
+              : _granted
+              ? '已授权，能读到新通知（另有 $_count 条在缓存里）'
+              : '没授权时助手读不到通知，点一下去系统列表里打开',
+          value: Text(_granted ? '已授权' : '未授权'),
+          onTap: _open,
+        ),
+        SettingsTile(
+          key: const ValueKey('notify-preview'),
+          title: '看看最近收到了什么',
+          subtitle: '只在本机看，不会自动发给模型',
+          onTap: _preview,
         ),
       ],
     );

@@ -8,6 +8,8 @@ import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 
+import '../notify/notify_bridge.dart';
+import '../proxy/proxy_service.dart';
 import 'site_store.dart';
 import 'webdav_client.dart';
 
@@ -596,6 +598,40 @@ class BrowserApi {
           return {'error': 'not_found', 'message': '这个编号不存在，请重新 snapshot'};
         }
         return {'ok': true};
+      case '/notify/status':
+        final status = await NotifyBridge.status();
+        return {'ok': true, 'granted': status.granted, 'count': status.count};
+      case '/notify/list':
+        final granted = (await NotifyBridge.status()).granted;
+        if (!granted) return _notifyDenied();
+        final items = await NotifyBridge.list(
+          limit: (body['limit'] as int?) ?? 30,
+          app: body['app'] as String?,
+        );
+        return {'ok': true, 'items': [for (final item in items) item.toJson()]};
+      case '/notify/search':
+        final granted = (await NotifyBridge.status()).granted;
+        if (!granted) return _notifyDenied();
+        final items = await NotifyBridge.search(
+          (body['query'] as String?) ?? '',
+          limit: (body['limit'] as int?) ?? 30,
+        );
+        return {'ok': true, 'items': [for (final item in items) item.toJson()]};
+      case '/notify/digest':
+        final granted = (await NotifyBridge.status()).granted;
+        if (!granted) return _notifyDenied();
+        final apps = await NotifyBridge.summary();
+        final items = await NotifyBridge.list(limit: (body['limit'] as int?) ?? 40);
+        final lines = [
+          for (final app in apps.take(12))
+            '[${app['app']}] ${app['count']} 条，最新：${app['latest']}',
+        ];
+        return {
+          'ok': true,
+          'apps': apps,
+          'summary': lines.join('\n'),
+          'items': [for (final item in items) item.toJson()],
+        };
       case '/dav/config':
         return {'ok': true, 'configured': WebdavConfig.configured, 'address': WebdavConfig.address, 'user': WebdavConfig.user};
       case '/dav/ls':
@@ -619,6 +655,11 @@ class BrowserApi {
         return {'error': 'unknown path'};
     }
   }
+
+  static Object _notifyDenied() => {
+    'error': 'denied',
+    'message': '还没有通知读取权限：请用户在 设置 → 通知使用权（或 能力控制 → 通知）里打开 DSH Go',
+  };
 
   static Object _full() => {'error': 'tabs_full', 'message': '最多 ${BrowserSession.maxTabs} 个标签，先关掉一个'};
 
@@ -688,6 +729,7 @@ true
   static Future<Object?> _download(String url, String? filename) async {
     try {
       final client = HttpClient();
+      ProxyRoute.apply(client);
       final request = await client.getUrl(Uri.parse(url));
       final response = await request.close();
       if (response.statusCode >= 400) {

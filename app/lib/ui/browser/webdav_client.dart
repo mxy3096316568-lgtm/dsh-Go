@@ -4,6 +4,9 @@ import 'dart:io';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart';
+
+import '../proxy/proxy_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// 云盘 (WebDAV) account: the address and the user name live in the app's
@@ -119,7 +122,7 @@ class WebdavClient {
     final ready = await _ready();
     if (ready != null) return ready;
     final uri = _uri(remote);
-    final client = http.Client();
+    final client = _client();
     try {
       final request = http.Request('GET', uri)..headers.addAll(await _headers());
       final response = await client.send(request).timeout(const Duration(seconds: 60));
@@ -204,6 +207,13 @@ class WebdavClient {
       };
     }
     return null;
+  }
+
+  /// An HTTP client that follows 内置代理 when it is on.
+  static http.Client _client() {
+    final io = HttpClient();
+    ProxyRoute.apply(io);
+    return IOClient(io);
   }
 
   static Future<Map<String, String>> _headers() async => {

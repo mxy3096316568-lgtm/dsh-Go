@@ -55,6 +55,9 @@ const browserSkillName = 'dsh-go-browser';
 /// 云盘（WebDAV）的说明书：浏览、上传、下载、搜索。
 const cloudSkillName = 'dsh-go-cloud';
 
+/// 通知中枢的说明书：读最近通知、按应用汇总。
+const notifySkillName = 'dsh-go-notify';
+
 /// The managed line inside SKILL.md's front matter.
 const uiSkillManagedMarker = '# dsh-go:managed';
 
@@ -171,6 +174,7 @@ final extraSkillLoadersProvider = Provider<List<UiSkillBundleLoader>>(
     () => loadUiSkillBundle(null, companionAdaptSkillName),
     () => loadUiSkillBundle(null, browserSkillName),
     () => loadUiSkillBundle(null, cloudSkillName),
+    () => loadUiSkillBundle(null, notifySkillName),
   ],
 );
 
