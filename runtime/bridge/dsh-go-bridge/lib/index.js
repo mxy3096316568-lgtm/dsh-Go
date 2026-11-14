@@ -39,6 +39,7 @@ import { registerBrowserTools } from "./browser-tools.js";
 import { registerWebdavTools } from "./webdav-tools.js";
 import { registerNotifyTools } from "./notify-tools.js";
 import { registerKbTools } from "./kb-tools.js";
+import { registerSkillTools } from "./skill-tools.js";
 
 export const name = "dsh-go-bridge";
 
@@ -350,6 +351,18 @@ export function apply(ctx, config) {
         return undefined;
       }
     }, "dsh-go-bridge: kb tools");
+  });
+
+  // 技能工具: 把做成的一串操作存成技能、列出、删掉.
+  ctx.inject(["tools"], (toolCtx) => {
+    toolCtx.effect(() => {
+      try {
+        return registerSkillTools(toolCtx);
+      } catch (error) {
+        toolCtx.logger?.warn?.("dsh-go-bridge: skill tools not registered", error);
+        return undefined;
+      }
+    }, "dsh-go-bridge: skill tools");
   });
 
   // 通知中枢工具: what the app's notification listener has read.
