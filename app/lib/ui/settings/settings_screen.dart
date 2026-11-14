@@ -30,6 +30,7 @@ import '../engine/engine_status.dart';
 import '../engine_settings/engine_settings_hub.dart';
 import '../engine_settings/web_search_page.dart';
 import 'media_settings_page.dart';
+import 'capabilities_page.dart';
 import '../features/feature_catalog.dart' show communityPage;
 import '../features/feature_format.dart' show permissionName;
 import '../features/permission_page.dart';
@@ -296,6 +297,14 @@ class SettingsScreen extends ConsumerWidget {
                 value: Text(l10n.askAiTooltip),
                 onTap: () => unawaited(askAi(context, AskAiTopic.overview)),
               ),
+            SettingsTile(
+              key: const ValueKey('settings-capabilities'),
+              icon: AppIcons.browser,
+              tint: SettingsHues.help,
+              title: '能力控制',
+              subtitle: '新增能力的总开关',
+              onTap: () => _push(context, const CapabilitiesPage()),
+            ),
           ],
         ),
         Padding(
