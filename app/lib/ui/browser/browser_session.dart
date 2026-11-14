@@ -256,6 +256,7 @@ class BrowserSession {
       final result = await const MethodChannel('dsh/browser-shot')
           .invokeMapMethod<String, Object?>('capture', {
             'dir': screenshotDir,
+            'url': url.value,
             'maxSide': 1600,
             'quality': 80,
           });
@@ -465,7 +466,7 @@ class BrowserApi {
           return _full();
         }
       case '/tabs':
-        return {'ok': true, 'tabs': _tabsOf(session), 'active': session.activeTab.value};
+        return {'ok': true, 'tabs': _tabsOf(session), 'activeIndex': session.activeTab.value};
       case '/tab-open':
         final target = (body['url'] as String?)?.trim() ?? '';
         try {
@@ -477,20 +478,20 @@ class BrowserApi {
         } on BrowserTabsFull {
           return _full();
         }
-        return {'ok': true, 'tabs': _tabsOf(session), 'active': session.activeTab.value};
+        return {'ok': true, 'tabs': _tabsOf(session), 'activeIndex': session.activeTab.value};
       case '/tab-switch':
         if (!session.opened) return {'error': 'browser_closed'};
         final index = _tabIndex(session, body);
         if (index == null) return {'error': 'not_found', 'message': '没有这个标签'};
         await session.switchTo(index);
-        return {'ok': true, 'tabs': _tabsOf(session), 'active': session.activeTab.value};
+        return {'ok': true, 'tabs': _tabsOf(session), 'activeIndex': session.activeTab.value};
       case '/tab-close':
         if (!session.opened) return {'error': 'browser_closed'};
         final index = _tabIndex(session, body);
         if (index == null) return {'error': 'not_found', 'message': '没有这个标签'};
         await session.closeTab(index);
         if (!session.opened) return {'ok': true, 'tabs': const [], 'closed': true};
-        return {'ok': true, 'tabs': _tabsOf(session), 'active': session.activeTab.value};
+        return {'ok': true, 'tabs': _tabsOf(session), 'activeIndex': session.activeTab.value};
       case '/screenshot':
         if (!session.opened) return {'error': 'browser_closed'};
         return await session.screenshot();
@@ -718,17 +719,20 @@ true
 
 /// Dialogs the browser raises while a tool drives it.
 class BrowserUi {
-  static final navigatorKey = GlobalKey<NavigatorState>();
+  /// The app's navigator, set once the app is built (app.dart).
+  static GlobalKey<NavigatorState>? navigatorKey;
 
-  static bool get hasUi => navigatorKey.currentContext != null;
+  static BuildContext? get context => navigatorKey?.currentContext;
+
+  static bool get hasUi => context != null;
 
   /// False when the app is not on screen: uploading sends the file out, so
   /// without a person to ask there is no consent.
   static Future<bool> confirm(String title, String message, {String yes = '允许', String no = '取消'}) async {
-    final context = navigatorKey.currentContext;
-    if (context == null) return false;
+    final page = context;
+    if (page == null) return false;
     final answer = await showDialog<bool>(
-      context: context,
+      context: page,
       builder: (context) => AlertDialog(
         title: Text(title),
         content: Text(message),
@@ -743,11 +747,11 @@ class BrowserUi {
 
   /// The person tapped a file input: a short sheet of recent allowed files.
   static Future<String?> pickFile(List<String> acceptTypes) async {
-    final context = navigatorKey.currentContext;
-    if (context == null) return null;
+    final page = context;
+    if (page == null) return null;
     final files = _recentFiles(acceptTypes);
     return showModalBottomSheet<String>(
-      context: context,
+      context: page,
       isScrollControlled: true,
       builder: (context) => SafeArea(
         child: Column(
@@ -846,13 +850,16 @@ class BrowserHost extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuilds when the page is shown and when a tab appears or goes: a page the
+    // tools opened while the browser screen was closed still has to be mounted,
+    // or it has no size to lay out (and no snapshot, no screenshot).
     return Stack(
       children: [
-        ValueListenableBuilder<bool>(
-          valueListenable: BrowserSession.instance.visible,
-          builder: (context, visible, _) {
+        ListenableBuilder(
+          listenable: Listenable.merge([BrowserSession.instance.visible, BrowserSession.instance.tabsRevision]),
+          builder: (context, _) {
             final session = BrowserSession.instance;
-            if (visible || !session.opened) return const SizedBox.shrink();
+            if (session.visible.value || !session.opened) return const SizedBox.shrink();
             return Positioned.fill(
               child: IgnorePointer(
                 child: WebViewWidget(key: const ValueKey('browser-host'), controller: session.controller),

@@ -50,6 +50,10 @@ class _DshAppState extends ConsumerState<DshApp> with WidgetsBindingObserver {
   /// lands without a cross-fade, later ones fade (切换配色).
   bool _settled = false;
 
+  /// The app's navigator, for the browser's dialogs (upload consent) raised
+  /// from the engine's loopback API, where there is no widget context.
+  final _navigatorKey = GlobalKey<NavigatorState>();
+
   @override
   void initState() {
     super.initState();
@@ -65,6 +69,7 @@ class _DshAppState extends ConsumerState<DshApp> with WidgetsBindingObserver {
     // switch as an in-app setting; the app answers frames to run at the fastest rate
     // while it is actually drawing (see RefreshRateService).
     RefreshRateService.instance.start();
+    BrowserUi.navigatorKey = _navigatorKey;
     WidgetsBinding.instance.addObserver(this);
   }
 
@@ -166,7 +171,7 @@ class _DshAppState extends ConsumerState<DshApp> with WidgetsBindingObserver {
       title: AppInfo.name,
       // The browser raises its own dialogs (upload consent, choosing a file)
       // from the engine's loopback API, where there is no widget context.
-      navigatorKey: BrowserUi.navigatorKey,
+      navigatorKey: _navigatorKey,
       debugShowCheckedModeBanner: false,
       theme: _light,
       darkTheme: _dark,

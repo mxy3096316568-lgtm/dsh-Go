@@ -47,7 +47,8 @@ class _WebdavPageState extends State<WebdavPage> {
       _user.text = WebdavConfig.user;
       _password.text = '';
     });
-    // The saved password is never shown; a blank field keeps the stored one.
+    // The stored password is filled in (hidden behind dots), so a test or a
+    // re-save works without typing it again.
     final stored = await WebdavConfig.password();
     if (!mounted) return;
     setState(() {

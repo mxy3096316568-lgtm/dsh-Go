@@ -67,7 +67,8 @@ class BrowserShotPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCall
 
     private fun capture(call: MethodCall, result: MethodChannel.Result) {
         val host = activity
-        val web = host?.let { findWebView(it.window.decorView) }
+        val wanted = call.argument<String>("url")?.takeIf { it.isNotBlank() }
+        val web = host?.let { findWebView(it.window.decorView, wanted) }
         if (web == null || web.width <= 0 || web.height <= 0) {
             result.success(mapOf<String, Any?>("error" to "browser_closed"))
             return
@@ -110,16 +111,31 @@ class BrowserShotPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCall
 
     private class Shot(val file: File, val width: Int, val height: Int)
 
-    /** The WebView the page paints into, wherever it sits in the activity's view tree. */
-    private fun findWebView(view: View?): WebView? {
-        if (view == null) return null
-        if (view is WebView && view.width > 0 && view.height > 0) return view
-        if (view is ViewGroup) {
-            for (index in 0 until view.childCount) {
-                findWebView(view.getChildAt(index))?.let { return it }
-            }
+    /**
+     * The WebView the browser page paints into, wherever it sits in the activity's view tree.
+     *
+     * The app can have more than one WebView (the embedded DSH Web UI has its own), so the
+     * one whose address matches [wanted] wins; otherwise the biggest one does.
+     */
+    private fun findWebView(view: View?, wanted: String?): WebView? {
+        val found = ArrayList<WebView>()
+        collect(view, found)
+        if (found.isEmpty()) return null
+        if (wanted != null) {
+            found.firstOrNull { it.url == wanted }?.let { return it }
         }
-        return null
+        return found.maxByOrNull { it.width.toLong() * it.height }
+    }
+
+    private fun collect(view: View?, into: MutableList<WebView>) {
+        if (view == null) return
+        if (view is WebView && view.width > 0 && view.height > 0) {
+            into.add(view)
+            return
+        }
+        if (view is ViewGroup) {
+            for (index in 0 until view.childCount) collect(view.getChildAt(index), into)
+        }
     }
 
     private fun draw(web: WebView, maxSide: Int): Bitmap? {
