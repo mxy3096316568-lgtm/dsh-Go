@@ -39,7 +39,7 @@ Future<void> _startApp() async {
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   SystemChrome.setSystemUIOverlayStyle(dshSystemOverlay(PlatformDispatcher.instance.platformBrightness));
   // 看护: 每分钟看一眼有没有到点的；没建过看护时这一步什么都不做。
-  unawaited(WatchService.instance.start());
+  WatchService.instance.start();
   // 授权记录: read now so the chat's approval path can check it synchronously.
   unawaited(ConsentStore.instance.load());
   // 内置浏览器: the loopback API the engine's tools reach.
