@@ -28,6 +28,9 @@ env:
   NODE_VERSION: 24.22.1
   TZ: Asia/Shanghai
   UV_USE_IO_URING: 0
+  # The runner reaches Maven Central and Google directly; the Aliyun mirrors
+  # answer 502 from there and Gradle then gives up on every artifact.
+  DSH_MAVEN_MIRRORS: "0"
 
 jobs:
   build:
