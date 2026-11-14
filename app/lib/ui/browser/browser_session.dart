@@ -4,10 +4,14 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
-/// The one browser in the app: the page the person sees and the page the
-/// tools drive. Attached while [BrowserPage] is on screen.
+import 'site_store.dart';
+
+/// The one browser in the app: kept alive for the whole process, so a page
+/// opened in the background (or left while a chat message is sent) is still
+/// there when the tools come back to it.
 class BrowserSession {
   BrowserSession._();
 
@@ -15,26 +19,39 @@ class BrowserSession {
 
   WebViewController? _controller;
   final ValueNotifier<String> url = ValueNotifier<String>('');
+  final ValueNotifier<bool> visible = ValueNotifier<bool>(false);
+
+  /// The page is on screen; while false the hidden host keeps the WebView up.
+  bool get pageVisible => visible.value;
+
+  WebViewController get controller {
+    return _controller ??= WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setBackgroundColor(const Color(0xFFFFFFFF))
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageStarted: (value) => url.value = value,
+          onPageFinished: (value) async {
+            url.value = value;
+            try {
+              final title = await _controller!.getTitle() ?? '';
+              await SiteStore.record(url: value, title: title);
+            } catch (_) {}
+          },
+        ),
+      );
+  }
 
   bool get opened => _controller != null;
 
-  void attach(WebViewController controller) => _controller = controller;
-
-  void detach(WebViewController controller) {
-    if (identical(_controller, controller)) _controller = null;
-  }
-
   Future<Object?> run(String script) async {
-    final controller = _controller;
-    if (controller == null) return null;
-    return controller.runJavaScriptReturningResult(script);
+    final c = _controller;
+    if (c == null) return null;
+    return c.runJavaScriptReturningResult(script);
   }
 
-  Future<bool> open(String target) async {
-    final controller = _controller;
-    if (controller == null) return false;
+  Future<void> open(String target) async {
     await controller.loadRequest(Uri.parse(target));
-    return true;
   }
 }
 
@@ -49,6 +66,16 @@ class BrowserApi {
 
   static HttpServer? _server;
   static String _token = 'dshgo-local';
+
+  static void publishSync() {
+    try {
+      _token = newToken();
+      File(tokenFile).createSync(recursive: true);
+      File(tokenFile).writeAsStringSync(jsonEncode({'port': port, 'token': _token}));
+    } catch (e) {
+      debugPrint('browser api token file not written: $e');
+    }
+  }
 
   static Future<void> start() async {
     if (_server != null) return;
@@ -89,19 +116,22 @@ class BrowserApi {
     final session = BrowserSession.instance;
     switch (path) {
       case '/state':
-        return {'open': session.opened, 'url': session.url.value};
+        return {'open': session.opened, 'url': session.url.value, 'visible': session.pageVisible};
       case '/open':
         final target = (body['url'] as String?)?.trim();
         if (target == null || target.isEmpty) return {'error': 'url required'};
-        final ok = await session.open(target);
-        return ok ? {'ok': true, 'url': target} : {'error': 'browser_closed'};
+        await session.open(target);
+        return {'ok': true, 'url': target};
       case '/snapshot':
+        if (!session.opened) return {'error': 'browser_closed'};
         final raw = await session.run(_snapshotScript);
         return {'elements': _elements(raw)};
       case '/read':
+        if (!session.opened) return {'error': 'browser_closed'};
         final raw = await session.run('document.body ? document.body.innerText.slice(0, 20000) : ""');
         return {'text': _stringOf(raw)};
       case '/click':
+        if (!session.opened) return {'error': 'browser_closed'};
         final ref = body['ref'];
         if (ref is! int) return {'error': 'ref must be an int'};
         final raw = await session.run(
@@ -109,6 +139,7 @@ class BrowserApi {
         );
         return {'result': _stringOf(raw)};
       case '/type':
+        if (!session.opened) return {'error': 'browser_closed'};
         final ref = body['ref'];
         final text = (body['text'] as String?) ?? '';
         if (ref is! int) return {'error': 'ref must be an int'};
@@ -161,15 +192,38 @@ class BrowserApi {
     final bytes = List<int>.generate(16, (_) => random.nextInt(256));
     return base64Url.encode(bytes);
   }
+}
 
-  /// Publishes the token for the engine's tools and keeps it in memory.
-  static Future<void> publish() async {
-    _token = newToken();
-    try {
-      await File(tokenFile).create(recursive: true);
-      await File(tokenFile).writeAsString(jsonEncode({'port': port, 'token': _token}));
-    } catch (e) {
-      debugPrint('browser api token file not written: $e');
-    }
+/// Keeps the WebView alive while the browser page is closed: a 1px host off
+/// the screen's corner owns the platform view, so the assistant can keep
+/// reading and clicking after the person returns to the chat.
+class BrowserHost extends StatelessWidget {
+  const BrowserHost({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        child,
+        ValueListenableBuilder<bool>(
+          valueListenable: BrowserSession.instance.visible,
+          builder: (context, visible, _) {
+            final session = BrowserSession.instance;
+            if (visible || !session.opened) return const SizedBox.shrink();
+            return Positioned(
+              left: -2,
+              top: -2,
+              width: 1,
+              height: 1,
+              child: IgnorePointer(
+                child: WebViewWidget(key: const ValueKey('browser-host'), controller: session.controller),
+              ),
+            );
+          },
+        ),
+      ],
+    );
   }
 }
