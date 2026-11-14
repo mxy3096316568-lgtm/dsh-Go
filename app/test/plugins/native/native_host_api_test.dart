@@ -133,12 +133,12 @@ void main() {
     final socket = _Socket(const ['phone', 'tools', 'send']);
     final stream = DshGoStream(() async => socket, features: const ['phone', 'tools', 'send']);
     final handlers = _FakeHandlers();
-    final rememberable = <String, bool>{};
+    final askedRememberable = <String, bool>{};
     final api = NativeHostApi(
       stream: stream,
       handlers: handlers,
-      consent: (request, {required rememberable: canRemember}) async {
-        rememberable[request.capability] = canRemember;
+      consent: (request, {required bool rememberable}) async {
+        askedRememberable[request.capability] = rememberable;
         return true;
       },
     )..attach();
@@ -159,7 +159,7 @@ void main() {
     ask('b', 'tools', {'tool': 'web_search', 'summary': 'web_search {}'});
     ask('c', 'send', {'text': 'draft'});
     await _pumpUntil(() => socket.sent.where((m) => m['t'] == 'host.res').length == 3);
-    expect(rememberable, {'phone': false, 'tools': false, 'send': true});
+    expect(askedRememberable, {'phone': false, 'tools': false, 'send': true});
     expect(handlers.inserted, 'draft');
     expect(handlers.insertedSession, 's1');
     expect(socket.sent.where((m) => m['t'] == 'host.res').every((m) => m['ok'] == true), true);

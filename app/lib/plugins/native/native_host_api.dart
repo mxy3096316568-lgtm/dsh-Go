@@ -320,7 +320,7 @@ Future<bool> showNativeHostConsent(
   if (rememberable && store.has(key)) return true;
   if (!rememberable) await store.revoke(key);
   final context = BrowserUi.navigatorKey?.currentContext;
-  if (context == null) return false;
+  if (context == null || !context.mounted) return false;
   final description = describeHostRequest(request);
   final choice = await showDialog<NativeHostConsentChoice>(
     context: context,

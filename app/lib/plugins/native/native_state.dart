@@ -10,6 +10,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:dsh_client/dsh_client.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/widgets.dart'
     show
         AppLifecycleListener,

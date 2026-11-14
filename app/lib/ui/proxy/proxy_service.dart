@@ -182,6 +182,52 @@ class ProxyService {
   /// the kernel refuses to start: the mihomo log alone does not say what it was fed.
   static String _configHead = '';
 
+  static Future<ProxyState> _status() async {
+    try {
+      final map = await _channel.invokeMapMethod<String, Object?>('status');
+      return _merge(map);
+    } on PlatformException {
+      return state.value.copyWith(kernel: false);
+    } on MissingPluginException {
+      return state.value.copyWith(kernel: false);
+    }
+  }
+
+  static ProxyState _merge(Map<String, Object?>? map) {
+    if (map == null) return state.value;
+    final error = map['error'] as String?;
+    final port = (map['port'] as num?)?.toInt() ?? state.value.port;
+    return state.value.copyWith(
+      running: map['running'] == true,
+      port: port,
+      webViewProxy: map['webViewProxy'] == true,
+      kernel: map['kernel'] == true,
+      configured: map['config'] == true,
+      error: error,
+      hint: _hintFor(map),
+    );
+  }
+
+  static String _hintFor(Map<String, Object?> map) {
+    switch (map['error']) {
+      case 'kernel_missing':
+        return '这个安装包里没有代理内核（libmihomo.so），需要重新构建';
+      case 'no_config':
+        return '还没有导入订阅';
+      case 'port_in_use':
+        final port = (map['port'] as num?)?.toInt();
+        return '端口 ${port ?? state.value.port} 已被其他应用占用，请换端口（上面「本地端口」改成别的，比如 ${((port ?? state.value.port) + 1)}）';
+      case 'start_timeout':
+        return '内核起来了但 20 秒内端口没就绪，而且端口没有被别的程序占用——可能是订阅配置有问题（看下面的日志）';
+      case 'start_failed':
+        return '内核启动失败：${map['message'] ?? ''}';
+      case 'write_failed':
+        return '配置写不进 App 目录：${map['message'] ?? ''}';
+      default:
+        return '';
+    }
+  }
+
   static void _applyRoute() {
     final current = state.value;
     ProxyRoute.httpProxy = current.running ? 'PROXY 127.0.0.1:${current.port}' : null;
