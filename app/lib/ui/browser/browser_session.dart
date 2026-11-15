@@ -354,10 +354,180 @@ class BrowserSession {
     await controller.loadRequest(Uri.parse(tab.url));
   }
 
+  /// Ref generation: every snapshot starts a new one, and a ref from an older one is
+  /// stale. Without it a cached number silently points at whatever moved into that
+  /// slot after the page changed ("叫地主" → "出牌").
+  int refGeneration = 0;
+
+  /// `s3:18` → generation 3, index 18; null for anything else (a bare index from an
+  /// older app counts as stale, not as "not found").
+  static ({int generation, int index})? parseRef(Object? raw) {
+    final match = raw is String ? RegExp(r'^s(\d{1,6}):(\d{1,6})$').firstMatch(raw) : null;
+    if (match == null) return null;
+    return (generation: int.parse(match.group(1)!), index: int.parse(match.group(2)!));
+  }
+
+  /// A snapshot of the page's actionable elements, paged: [offset] / [limit] into the
+  /// filtered list, [query] filters by text. The refs it returns carry this
+  /// generation and are valid until the next snapshot.
+  Future<Map<String, Object?>> snapshot({int offset = 0, int limit = 40, String? query}) async {
+    final generation = ++refGeneration;
+    final clampedLimit = limit.clamp(1, 100).toInt();
+    final clampedOffset = offset < 0 ? 0 : offset;
+    final raw = await run(_snapshotScript(generation, clampedOffset, clampedLimit, query ?? ''));
+    final text = _stringOf(raw);
+    try {
+      final decoded = jsonDecode(text);
+      if (decoded is Map) return Map<String, Object?>.from(decoded);
+    } catch (_) {}
+    return {'ok': false, 'error': 'snapshot_failed', 'message': '这个页面取不到元素，稍后重试'};
+  }
+
+  /// After a tap: what changed since the last snapshot, not the whole page again.
+  /// Returns the diff and starts a new ref generation for the changed refs.
+  Future<Map<String, Object?>> clickDiff() async {
+    final raw = await run(_diffScript(refGeneration));
+    final text = _stringOf(raw);
+    try {
+      final decoded = jsonDecode(text);
+      if (decoded is Map) return Map<String, Object?>.from(decoded);
+    } catch (_) {}
+    return {'changed': const [], 'added': const [], 'removed': 0, 'total': 0};
+  }
+
+  /// Elements a snapshot can act on. `visible` says whether it is on screen now;
+  /// `section` is the nearest heading, so a list of twenty "编辑" is readable.
+  static String _snapshotScript(int generation, int offset, int limit, String query) => '''
+(() => {
+  const gen = $generation, offset = $offset, limit = $limit, query = ${jsonEncode(query)};
+  const sel = 'a,button,input,textarea,select,[role=button],[onclick],[contenteditable="true"],[contenteditable=""]';
+  const seen = new Set();
+  const items = [];
+  function pathOf(el) {
+    const parts = [];
+    let node = el;
+    while (node && node.nodeType === 1 && node !== document.body) {
+      let index = 1;
+      let prev = node.previousElementSibling;
+      while (prev) { if (prev.tagName === node.tagName) index += 1; prev = prev.previousElementSibling; }
+      parts.unshift(node.tagName.toLowerCase() + ':nth-of-type(' + index + ')');
+      node = node.parentElement;
+    }
+    return parts.join('>');
+  }
+  function sectionOf(el) {
+    const box = el.closest('section,article,form,dialog,main,nav,aside,fieldset,li');
+    const heading = box ? box.querySelector('h1,h2,h3,h4,h5,h6,legend') : null;
+    const text = heading ? String(heading.innerText || '').trim() : '';
+    if (text) return text.slice(0, 40);
+    const page = document.querySelector('h1');
+    return page ? String(page.innerText || '').trim().slice(0, 40) : '';
+  }
+  for (const e of document.querySelectorAll(sel)) {
+    const isFile = e.tagName === 'INPUT' && String(e.type || '').toLowerCase() === 'file';
+    if (!isFile && e.getClientRects().length === 0) continue;
+    let t = (e.innerText || e.value || e.getAttribute('aria-label') || e.placeholder || '').trim().slice(0, 60);
+    if (!t && isFile) t = '文件选择框';
+    if (!t) continue;
+    const key = isFile ? 'file|' + items.length : t + '|' + (e.tagName.toLowerCase() === 'button' ? 'a' : e.tagName.toLowerCase());
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const r = e.getBoundingClientRect();
+    const item = { tag: e.tagName.toLowerCase(), text: t, path: pathOf(e) };
+    if (isFile) item.file = true;
+    if (e.disabled === true || e.getAttribute('aria-disabled') === 'true') item.disabled = true;
+    if (e.checked === true || e.getAttribute('aria-checked') === 'true') item.checked = true;
+    if (e.selected === true || e.getAttribute('aria-selected') === 'true' || e.getAttribute('aria-pressed') === 'true') item.selected = true;
+    const section = sectionOf(e);
+    if (section) item.section = section;
+    item.visible = r.width > 0 && r.height > 0 && r.bottom >= 0 && r.top <= innerHeight && r.right >= 0 && r.left <= innerWidth;
+    items.push({ el: e, item });
+    if (items.length >= 800) break;
+  }
+  const needle = query.toLowerCase();
+  const filtered = needle ? items.filter(({ item }) => item.text.toLowerCase().includes(needle)) : items;
+  const page = filtered.slice(offset, offset + limit);
+  const elements = page.map(({ el, item }, i) => {
+    const ref = 's' + gen + ':' + (offset + i);
+    el.setAttribute('data-dsh-ref', ref);
+    return { ref, ...item };
+  });
+  window.__dshSnap = { gen, items: items.map(({ item }) => ({ path: item.path, text: item.text, tag: item.tag, checked: !!item.checked, disabled: !!item.disabled })) };
+  const next = offset + page.length < filtered.length ? offset + page.length : null;
+  return JSON.stringify({ gen, total: filtered.length, offset, limit, next, elements });
+})()
+''';
+
+  /// Re-reads the page after a tap and reports what changed against the last
+  /// snapshot by DOM path, with fresh refs for the changed elements only.
+  static String _diffScript(int generation) => '''
+(() => {
+  const prev = (window.__dshSnap && window.__dshSnap.items) || [];
+  const gen = $generation;
+  const sel = 'a,button,input,textarea,select,[role=button],[onclick],[contenteditable="true"],[contenteditable=""]';
+  const seen = new Set();
+  const current = [];
+  const byPath = new Map();
+  function pathOf(el) {
+    const parts = [];
+    let node = el;
+    while (node && node.nodeType === 1 && node !== document.body) {
+      let index = 1;
+      let p = node.previousElementSibling;
+      while (p) { if (p.tagName === node.tagName) index += 1; p = p.previousElementSibling; }
+      parts.unshift(node.tagName.toLowerCase() + ':nth-of-type(' + index + ')');
+      node = node.parentElement;
+    }
+    return parts.join('>');
+  }
+  for (const e of document.querySelectorAll(sel)) {
+    const isFile = e.tagName === 'INPUT' && String(e.type || '').toLowerCase() === 'file';
+    if (!isFile && e.getClientRects().length === 0) continue;
+    const t = (e.innerText || e.value || e.getAttribute('aria-label') || e.placeholder || '').trim().slice(0, 60);
+    if (!t) continue;
+    const key = isFile ? 'file|' + current.length : t + '|' + (e.tagName.toLowerCase() === 'button' ? 'a' : e.tagName.toLowerCase());
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const path = pathOf(e);
+    const item = { path, text: t, tag: e.tagName.toLowerCase(), checked: e.checked === true || e.getAttribute('aria-checked') === 'true', disabled: e.disabled === true || e.getAttribute('aria-disabled') === 'true', el: e };
+    current.push(item);
+    byPath.set(path, e);
+    if (current.length >= 400) break;
+  }
+  const prevMap = new Map(prev.map((p) => [p.path, p]));
+  const curPaths = new Set(current.map((c) => c.path));
+  const changed = [];
+  const added = [];
+  for (const c of current) {
+    const old = prevMap.get(c.path);
+    if (!old) added.push(c);
+    else if (old.text !== c.text || old.tag !== c.tag || !!old.checked !== !!c.checked || !!old.disabled !== !!c.disabled) changed.push(c);
+  }
+  const removed = prev.filter((p) => !curPaths.has(p.path)).length;
+  function fresh(entry, i) {
+    // Refs handed out after a tap live above 1000, so they never collide with the
+    // indices of the last snapshot; that snapshot's refs stay valid for elements
+    // that did not change.
+    const ref = 's' + gen + ':' + (1000 + i);
+    const el = byPath.get(entry.path);
+    if (el) el.setAttribute('data-dsh-ref', ref);
+    return { ref, tag: entry.tag, text: entry.text, path: entry.path, checked: !!entry.checked, disabled: !!entry.disabled };
+  }
+  window.__dshSnap = { gen, items: current.map((c) => ({ path: c.path, text: c.text, tag: c.tag, checked: !!c.checked, disabled: !!c.disabled })) };
+  return JSON.stringify({
+    gen,
+    changed: changed.slice(0, 20).map(fresh),
+    added: added.slice(0, 20).map((c, i) => fresh(c, changed.length + i)),
+    removed,
+    total: current.length,
+  });
+})()
+''';
+
   /// Screenshot of what the page currently shows (native: Flutter cannot
   /// capture a platform view).
   Future<Map<String, Object?>> screenshot() async {
-    if (!opened) return {'error': 'browser_closed'};
+    if (!opened) return {'error': 'browser_closed', 'message': '浏览器没打开，先 browser_open'};
     try {
       final result = await const MethodChannel('dsh/browser-shot')
           .invokeMapMethod<String, Object?>('capture', {
@@ -384,8 +554,8 @@ class BrowserSession {
   /// not one, so `onShowFileSelector` never runs. Building the `File` in the page
   /// needs no gesture and no chooser, and the page sees exactly what a person's
   /// pick would have given it.
-  Future<Map<String, Object?>> upload(int ref, String path) async {
-    if (!opened) return {'error': 'browser_closed'};
+  Future<Map<String, Object?>> upload(String ref, String path) async {
+    if (!opened) return {'error': 'browser_closed', 'message': '浏览器没打开，先 browser_open'};
     final file = File(path);
     final problem = _uploadProblem(file);
     if (problem != null) return problem;
@@ -696,6 +866,7 @@ class BrowserApi {
     '/kb/read': ['files'],
     '/kb/import': ['files'],
     '/kb/reindex': ['files'],
+    '/kb/delete': ['files'],
     '/kb/put': ['files'],
     '/kb/crawl': ['files'],
     '/notify/status': ['notify'],
@@ -723,11 +894,13 @@ class BrowserApi {
           'url': session.url.value,
           'visible': session.pageVisible,
           'loading': session.loading,
+          'refGeneration': session.refGeneration,
           'tabs': _tabsOf(session),
         };
       case '/open':
-        final target = (body['url'] as String?)?.trim();
-        if (target == null || target.isEmpty) return {'error': 'url required'};
+        final checked = _validUrl(body['url'] as String?);
+        if (checked.error != null) return checked.error!;
+        final target = checked.url!;
         try {
           final finalUrl = await session.open(target);
           if (session.lastLoadTimedOut) {
@@ -766,7 +939,10 @@ class BrowserApi {
       case '/tabs':
         return {'ok': true, 'tabs': _tabsOf(session), 'activeIndex': session.activeTab.value};
       case '/tab-open':
-        final target = (body['url'] as String?)?.trim() ?? '';
+        final wanted = (body['url'] as String?)?.trim() ?? '';
+        final checked = _validUrl(wanted);
+        if (wanted.isNotEmpty && checked.error != null) return checked.error!;
+        final target = wanted.isEmpty ? '' : checked.url!;
         try {
           if (target.isEmpty) {
             session.newTab();
@@ -778,7 +954,7 @@ class BrowserApi {
         }
         return {'ok': true, 'tabs': _tabsOf(session), 'activeIndex': session.activeTab.value};
       case '/tab-switch':
-        if (!session.opened) return {'error': 'browser_closed'};
+        if (!session.opened) return {'error': 'browser_closed', 'message': '浏览器没打开，先 browser_open'};
         final index = _tabIndex(session, body);
         if (index == null) return {'error': 'not_found', 'message': '没有这个标签'};
         try {
@@ -794,7 +970,7 @@ class BrowserApi {
         }
         return {'ok': true, 'tabs': _tabsOf(session), 'activeIndex': session.activeTab.value};
       case '/tab-close':
-        if (!session.opened) return {'error': 'browser_closed'};
+        if (!session.opened) return {'error': 'browser_closed', 'message': '浏览器没打开，先 browser_open'};
         final index = _tabIndex(session, body);
         if (index == null) return {'error': 'not_found', 'message': '没有这个标签'};
         try {
@@ -810,27 +986,31 @@ class BrowserApi {
         if (!session.opened) return {'ok': true, 'tabs': const [], 'closed': true};
         return {'ok': true, 'tabs': _tabsOf(session), 'activeIndex': session.activeTab.value};
       case '/screenshot':
-        if (!session.opened) return {'error': 'browser_closed'};
+        if (!session.opened) return {'error': 'browser_closed', 'message': '浏览器没打开，先 browser_open'};
         return await session.screenshot();
       case '/upload':
-        if (!session.opened) return {'error': 'browser_closed'};
-        final ref = body['ref'];
+        if (!session.opened) return {'error': 'browser_closed', 'message': '浏览器没打开，先 browser_open'};
+        final checked = _refOf(session, body['ref']);
+        if (checked.error != null) return checked.error!;
         final file = (body['path'] as String?)?.trim();
-        if (ref is! int) return {'error': 'ref must be an int'};
         if (file == null || file.isEmpty) return {'error': 'path required'};
-        return await session.upload(ref, file);
+        return await session.upload(checked.ref!, file);
       case '/snapshot':
-        if (!session.opened) return {'error': 'browser_closed'};
-        final raw = await session.run(_snapshotScript);
-        final snapshot = _snapshot(raw);
+        if (!session.opened) return {'error': 'browser_closed', 'message': '浏览器没打开，先 browser_open'};
+        final offset = (body['offset'] as int?) ?? 0;
+        final limit = (body['limit'] as int?) ?? 40;
+        final query = (body['query'] as String?)?.trim();
+        final snapshot = await session.snapshot(offset: offset, limit: limit, query: query);
+        if (snapshot['error'] != null) return snapshot;
+        final next = snapshot['next'];
         return {
+          ...snapshot,
           'ok': true,
-          'elements': snapshot.elements,
-          if (snapshot.truncated) 'truncated': true,
-          if (snapshot.truncated) 'note': '只列了前 40 个可操作元素，页面上还有更多（缩小范围或直接 browser_js）',
+          if (next != null) 'truncated': true,
+          if (next != null) 'note': '还有更多元素：用 offset=$next 继续翻，或用 query 过滤',
         };
       case '/read':
-        if (!session.opened) return {'error': 'browser_closed'};
+        if (!session.opened) return {'error': 'browser_closed', 'message': '浏览器没打开，先 browser_open'};
         await session.waitLoaded(const Duration(seconds: 3));
         final raw = await session.run('document.body ? document.body.innerText.slice(0, 20000) : ""');
         final text = BrowserSession._stringOf(raw);
@@ -839,9 +1019,12 @@ class BrowserApi {
           final reason = mark.isNotEmpty ? mark : text.split('\n').first;
           return {'error': 'load_error', 'message': '页面加载失败：$reason'};
         }
+        if (text.trim().isEmpty) {
+          return {'ok': true, 'text': '', 'note': '这个页面没有文字（可能是空白页，或者还没加载完）'};
+        }
         return {'ok': true, 'text': text};
       case '/js':
-        if (!session.opened) return {'error': 'browser_closed'};
+        if (!session.opened) return {'error': 'browser_closed', 'message': '浏览器没打开，先 browser_open'};
         final code = (body['code'] as String?) ?? '';
         if (code.trim().isEmpty) return {'error': 'code required'};
         final timeoutMs = (body['timeoutMs'] as int?) ?? 10000;
@@ -851,35 +1034,59 @@ class BrowserApi {
         if (target == null || target.isEmpty) return {'error': 'url required'};
         return await _download(target, body['filename'] as String?);
       case '/click':
-        if (!session.opened) return {'error': 'browser_closed'};
-        final ref = body['ref'];
-        if (ref is! int) return {'error': 'ref must be an int'};
+        if (!session.opened) return {'error': 'browser_closed', 'message': '浏览器没打开，先 browser_open'};
+        final checked = _refOf(session, body['ref']);
+        if (checked.error != null) return checked.error!;
+        final ref = checked.ref!;
         final raw = await session.run(
           '(() => { const e = document.querySelector(\'[data-dsh-ref="$ref"]\'); if (!e) return "missing"; e.click(); return "ok"; })()',
         );
         if (BrowserSession._stringOf(raw) == 'missing') {
-          return {'error': 'not_found', 'message': '这个编号不存在，请重新 snapshot'};
+          return {'error': 'stale_ref', 'message': '这个编号不存在或已经过期，重新 browser_snapshot 再点'};
         }
         // A click that navigates takes a moment to show up; wait a little so a read
         // straight after it is not answered with the previous page.
         await session.waitForNavigation();
+        final diff = await session.clickDiff();
         return {
           'ok': true,
           'url': session.url.value,
           'loading': session.loading,
+          'refGeneration': session.refGeneration,
           'tabs': _tabsOf(session),
+          ...diff,
         };
       case '/type':
-        if (!session.opened) return {'error': 'browser_closed'};
-        final ref = body['ref'];
+        if (!session.opened) return {'error': 'browser_closed', 'message': '浏览器没打开，先 browser_open'};
+        final checked = _refOf(session, body['ref']);
+        if (checked.error != null) return checked.error!;
+        final ref = checked.ref!;
         final text = (body['text'] as String?) ?? '';
-        if (ref is! int) return {'error': 'ref must be an int'};
-        final script = '(() => { const e = document.querySelector(\'[data-dsh-ref="$ref"]\'); if (!e) return "missing"; e.focus(); e.value = ${jsonEncode(text)}; e.dispatchEvent(new Event("input", {bubbles: true})); return "ok"; })()';
+        final script = '''
+(() => {
+  const e = document.querySelector('[data-dsh-ref="$ref"]');
+  if (!e) return "missing";
+  const tag = String(e.tagName || "").toLowerCase();
+  const type = String(e.type || "text").toLowerCase();
+  const texty = tag === "input" && !["checkbox","radio","file","submit","button","image","range","color"].includes(type);
+  if (!(tag === "textarea" || texty || e.isContentEditable === true)) return "not_editable";
+  e.focus();
+  if (e.isContentEditable === true) { e.innerText = ${jsonEncode(text)}; }
+  else { e.value = ${jsonEncode(text)}; }
+  e.dispatchEvent(new Event("input", { bubbles: true }));
+  e.dispatchEvent(new Event("change", { bubbles: true }));
+  return "ok";
+})()
+''';
         final raw = await session.run(script);
-        if (BrowserSession._stringOf(raw) == 'missing') {
-          return {'error': 'not_found', 'message': '这个编号不存在，请重新 snapshot'};
+        final answer = BrowserSession._stringOf(raw);
+        if (answer == 'missing') {
+          return {'error': 'stale_ref', 'message': '这个编号不存在或已经过期，重新 browser_snapshot 再填'};
         }
-        return {'ok': true};
+        if (answer == 'not_editable') {
+          return {'error': 'not_editable', 'message': '这个元素不是输入框（input/textarea/contenteditable 才能填字），请重新 snapshot 找输入框'};
+        }
+        return {'ok': true, 'ref': ref};
       case '/kb/search':
         final query = (body['query'] as String?)?.trim() ?? '';
         if (query.isEmpty) return {'error': 'query required'};
@@ -961,6 +1168,14 @@ class BrowserApi {
       case '/kb/reindex':
         final rebuilt = await _kb.rebuild();
         return {'ok': true, 'docs': rebuilt.docs, 'chunks': rebuilt.chunks, 'bytes': rebuilt.totalBytes};
+      case '/kb/delete':
+        final doc = (body['doc'] as String?)?.trim() ?? '';
+        if (doc.isEmpty) return {'error': 'doc required', 'message': '要删哪个文档？传 doc 路径'};
+        final removed = await _kb.deleteDoc(doc);
+        final after = await _kb.stats();
+        return removed
+            ? {'ok': true, 'doc': doc, 'docs': after.docs, 'chunks': after.chunks}
+            : {'error': 'not_found', 'message': '知识库里没有这个文档：$doc'};
       case '/kb/put':
         final url = (body['url'] as String?)?.trim() ?? '';
         final text = (body['text'] as String?) ?? '';
@@ -1074,6 +1289,59 @@ class BrowserApi {
     'message': '还没有通知读取权限：请用户在 设置 → 通知使用权（或 能力控制 → 通知）里打开 DSH Go',
   };
 
+  /// The ref a tool sent, checked against the page's current snapshot generation.
+  static ({String? ref, Object? error}) _refOf(BrowserSession session, Object? raw) {
+    final parsed = BrowserSession.parseRef(raw);
+    if (parsed == null) {
+      // A bare number is what older versions returned: it cannot be trusted any more,
+      // and saying "stale" tells the caller exactly what to do (snapshot again).
+      if (raw is int) {
+        return (
+          ref: null,
+          error: {
+            'error': 'stale_ref',
+            'message': '这个编号来自旧版本/旧快照，重新 browser_snapshot 拿新编号（形如 s3:18）',
+            'refGeneration': session.refGeneration,
+          },
+        );
+      }
+      return (
+        ref: null,
+        error: {
+          'error': 'bad_ref',
+          'message': 'ref 要传 browser_snapshot 返回的编号（形如 s3:18），不要自己编',
+        },
+      );
+    }
+    if (parsed.generation != session.refGeneration) {
+      return (
+        ref: null,
+        error: {
+          'error': 'stale_ref',
+          'message': '这个编号来自旧快照（页面已经变过），重新 browser_snapshot 再操作',
+          'refGeneration': session.refGeneration,
+        },
+      );
+    }
+    return (ref: 's${parsed.generation}:${parsed.index}', error: null);
+  }
+
+  static ({String? url, Object? error}) _validUrl(String? raw) {
+    final text = raw?.trim() ?? '';
+    if (text.isEmpty) return (url: null, error: {'error': 'url required'});
+    final uri = Uri.tryParse(text);
+    if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https') || uri.host.isEmpty) {
+      return (
+        url: null,
+        error: {
+          'error': 'bad_url',
+          'message': '网址不对：要 http:// 或 https:// 开头并带域名（例如 https://example.com），/ 开头的相对地址用不了',
+        },
+      );
+    }
+    return (url: text, error: null);
+  }
+
   static Object _full() => {'error': 'tabs_full', 'message': '最多 ${BrowserSession.maxTabs} 个标签，先关掉一个'};
 
   static List<Map<String, Object?>> _tabsOf(BrowserSession session) => [
@@ -1182,63 +1450,6 @@ true
     } catch (e) {
       return {'error': 'unsupported', 'message': '下载失败：$e'};
     }
-  }
-
-  static const _snapshotScript = '''
-(() => {
-  const sel = 'a,button,input,textarea,select,[role=button],[onclick]';
-  const seen = new Set();
-  const out = [];
-  const all = Array.from(document.querySelectorAll(sel));
-  let i = 0;
-  for (; i < all.length; i++) {
-    const e = all[i];
-    const isFile = e.tagName === 'INPUT' && String(e.type || '').toLowerCase() === 'file';
-    // A file input is usually display:none behind a styled label, and takes no
-    // text: keep it anyway, or uploading has no ref to aim at.
-    if (!isFile && e.getClientRects().length === 0) continue;
-    let t = (e.innerText || e.value || e.getAttribute('aria-label') || e.placeholder || '').trim().slice(0, 60);
-    if (!t && isFile) t = '文件选择框';
-    if (!t) continue;
-    const key = isFile ? 'file|' + out.length : t + '|' + (e.tagName.toLowerCase() === 'button' ? 'a' : e.tagName.toLowerCase());
-    if (seen.has(key)) continue;
-    seen.add(key);
-    e.setAttribute('data-dsh-ref', String(out.length));
-    const item = { ref: out.length, tag: e.tagName.toLowerCase(), text: t };
-    if (isFile) item.file = true;
-    out.push(item);
-    if (out.length >= 40) break;
-  }
-  // 40 条是上限，不是页面到底了：后面还有可见元素时明确说一声。
-  let truncated = false;
-  for (; i < all.length; i++) {
-    const e = all[i];
-    const isFile = e.tagName === 'INPUT' && String(e.type || '').toLowerCase() === 'file';
-    if (!isFile && e.getClientRects().length === 0) continue;
-    const t = (e.innerText || e.value || e.getAttribute('aria-label') || e.placeholder || '').trim();
-    if (!t) continue;
-    truncated = true;
-    break;
-  }
-  return JSON.stringify({ elements: out, truncated });
-})()
-''';
-
-  static ({List<Object?> elements, bool truncated}) _snapshot(Object? raw) {
-    final text = BrowserSession._stringOf(raw);
-    if (text.isEmpty) return (elements: const [], truncated: false);
-    try {
-      final decoded = jsonDecode(text);
-      if (decoded is List) return (elements: decoded, truncated: false);
-      if (decoded is Map) {
-        final elements = decoded['elements'];
-        return (
-          elements: elements is List ? elements : const [],
-          truncated: decoded['truncated'] == true,
-        );
-      }
-    } catch (_) {}
-    return (elements: const [], truncated: false);
   }
 
   static String newToken() {

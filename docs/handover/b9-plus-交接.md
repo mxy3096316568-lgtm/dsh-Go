@@ -114,3 +114,28 @@ B10（pending 只有静态标签、没有进度）**未做**：需要新的协�
 - 插件 API：`ctx.dshGo.progress('第 3 步（共 8 步）')`，只能在 `pending` 的延后工作里调，不需要新能力声明
 - App：流里多一个分支，`NativeWorkController.relabel` 重绘点按元素上的标签；旧 App 忽略该消息，标签保持初始值
 - 测试：桥接延后用例断言 `pending.label` 帧；`dsh_client` 新增「标签更新 + 非法标签丢弃」用例；kit 115、桥接 native 98、client 32 全过
+
+## 第五轮（2026-11-15 07:55 工单）：B4–B17
+
+同一批一次做完，不再分批：
+
+| # | 改动 |
+|---|---|
+| 4 | `/open`、`/tab-open` 先校验 URL（必须 http/https 且有域名），`https://`、相对地址 → `bad_url`；载入 10 秒没完成 → `load_timeout`；`finalUrl` 取 WebView 的 `currentUrl()` |
+| 5 | `click` 后最多等 1.2 秒看 url/loading 变化再返回；`/state` 增加 `refGeneration` |
+| 6 | `/type` 先判目标：input（排除 checkbox/radio/file 等）、textarea、contenteditable，否则 `not_editable` |
+| 7 | ref 带代次：snapshot 返回 `s3:18`；旧代次 / 旧版纯数字 → `stale_ref`（提示重新 snapshot）；不存在的元素同样 `stale_ref` |
+| 8 | `/read` 空白页返回 `note`「这个页面没有文字（可能是空白页，或者还没加载完）」 |
+| 9 | 所有 `browser_closed` 带 `message`「浏览器没打开，先 browser_open」 |
+| 10 | 云盘 search 先 `decodeFull` 路径再取名，只比名字 |
+| 11 | `kb_read`：文档不在 → 「知识库里没有这个文档」；块号越界 → 「这个文档没有第 N 块」 |
+| 12 | `web_crawl` 一页没抓到 → `ok:false` |
+| 13 | kit 的 vendored `capabilities.js` / `limits.js` 同步桥接 0.5.0（check 不再报 unknown） |
+| 14 | snapshot 每项新增 `disabled` / `checked` / `selected` / `section`（最近区块标题）/ `visible`（是否在屏幕内） |
+| 15 | snapshot 支持 `offset` / `limit`（默认 40、最多 100）/ `query` 过滤，返回 `next` 与 `truncated` |
+| 16 | `click` 返回差异：`changed` / `added`（最多各 20，带新 ref）/ `removed` / `total`，不再整页重列；未变元素的旧 ref 仍可用，变化元素用新 ref |
+| 17 | 新增 `kb_list`（/kb/docs）与 `kb_remove`（/kb/delete，删源文件并更新索引，能力开关 `files`） |
+| 18 | `pending.label` + `ctx.dshGo.progress()`（见上一节） |
+
+本地验证：snapshot / diff 两段脚本在 jsdom 里跑过（refs、paging、disabled/checked/section/visible、changed/added/removed）；
+`dart analyze`（app 与 dsh_client）No issues found；桥接 native 98、kit 115、client 32 全过。

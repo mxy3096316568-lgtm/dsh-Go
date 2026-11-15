@@ -91,8 +91,13 @@ function definitions() {
     }),
     tool({
       name: "browser_snapshot",
-      description: "列出当前标签页面上可点的元素，每项带编号 ref 和文字。点按、填表、上传都用这个编号。文件选择框即使被藏在样式后面也会列出来，并带 file:true。",
-      execute: () => call("/snapshot"),
+      description: "列出当前标签页面上可操作的元素，每项带编号 ref（形如 s3:18）和文字，以及 disabled/checked/selected/section（所属区块标题）/visible（是否在屏幕内）。点按、填表、上传都用这个编号；编号只在本次快照有效，页面变了要重新 snapshot，否则会报 stale_ref。默认 40 条，多出来的用 offset 翻页或用 query 过滤。文件选择框即使被藏在样式后面也会列出来并带 file:true。",
+      properties: {
+        offset: { type: "integer", description: "从第几条开始，默认 0（用上一页返回的 next）" },
+        limit: { type: "integer", description: "这一页几条，默认 40，最多 100" },
+        query: { type: "string", description: "只列文字包含这段内容的元素" },
+      },
+      execute: (args) => call("/snapshot", { offset: args.offset ?? 0, limit: args.limit ?? 40, query: args.query }),
     }),
     tool({
       name: "browser_screenshot",
@@ -119,15 +124,15 @@ function definitions() {
     }),
     tool({
       name: "browser_click",
-      description: "点击当前标签页面上编号为 ref 的元素（编号来自 browser_snapshot）。",
-      properties: { ref: { type: "integer", required: true, description: "browser_snapshot 给出的编号" } },
+      description: "点击当前标签页面上编号为 ref 的元素（编号来自 browser_snapshot，形如 s3:18）。返回这次点按后的差异（changed/added/removed），不是整页重列；顺带给出 url 与 loading。",
+      properties: { ref: { type: "string", required: true, description: "browser_snapshot 给出的编号（如 s3:18）" } },
       execute: (args) => call("/click", { ref: args.ref }),
     }),
     tool({
       name: "browser_type",
       description: "往当前标签页面上编号为 ref 的输入框里填文字（编号来自 browser_snapshot）。",
       properties: {
-        ref: { type: "integer", required: true, description: "browser_snapshot 给出的编号" },
+        ref: { type: "string", required: true, description: "browser_snapshot 给出的编号（如 s3:18），必须是输入框/textarea/contenteditable" },
         text: { type: "string", required: true, description: "要填进去的文字" },
       },
       execute: (args) => call("/type", { ref: args.ref, text: args.text }),
@@ -136,7 +141,7 @@ function definitions() {
       name: "browser_upload",
       description: "把手机上的一个文件填进页面的文件选择框（先 snapshot 找到带 file:true 的 ref）。只允许 下载(Download) 和 DCIM 里的文件、扩展名要在白名单里、单个不超过 10MB；默认会请用户在 App 里确认，用户不在或不确认返回 denied。填好后页面会收到 input/change 事件，和用户亲手选中一样。",
       properties: {
-        ref: { type: "integer", required: true, description: "文件选择框的编号（browser_snapshot 给出）" },
+        ref: { type: "string", required: true, description: "文件选择框的编号（browser_snapshot 给出，如 s3:18）" },
         path: { type: "string", required: true, description: "手机上的完整路径，例如 /sdcard/Download/a.pdf" },
       },
       execute: (args) => call("/upload", { ref: args.ref, path: args.path }, 180000),

@@ -95,6 +95,17 @@ function definitions() {
       execute: (args) => call("/kb/import", { path: args.path }, 120000),
     }),
     tool({
+      name: "kb_list",
+      description: "列出知识库里有哪些文档：路径、字节数、块数。想确认收了什么、或给 kb_read 找路径时先看这个。",
+      execute: () => call("/kb/docs", {}),
+    }),
+    tool({
+      name: "kb_remove",
+      description: "从知识库删掉一个文档（会删除 下载/DSH-Go/知识库 里对应的源文件并更新索引）。删除前先问用户。",
+      properties: { doc: { type: "string", required: true, description: "kb_list / kb_search 返回的文档路径" } },
+      execute: (args) => call("/kb/delete", { doc: args.doc }),
+    }),
+    tool({
       name: "kb_stats",
       description: "看知识库现状：多少文档、多少块、占多少空间、超时跳过了多少文件。",
       execute: () => call("/kb/stats", {}),
